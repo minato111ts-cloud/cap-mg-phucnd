@@ -1,0 +1,10 @@
+[project]
+name = "cap-mg-phucnd"
+version = "0.1.0"
+description = "Capstone dbt Finova - CAP-MG"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "dbt-core==1.12.5",
+    "dbt-postgres==1.11.0",
+]
