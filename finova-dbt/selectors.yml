@@ -1,0 +1,53 @@
+selectors:
+  - name: cap_mg_khung
+    description: "Selector kiểm tra khung project (KAT tests)"
+    definition:
+      method: path
+      value: tests/khung
+
+  - name: cap_mg_staging
+    description: "Tầng staging"
+    definition:
+      method: tag
+      value: staging
+
+  - name: cap_mg_raw
+    description: "Tầng Raw Vault"
+    definition:
+      method: tag
+      value: dv_raw
+
+  - name: cap_mg_bv
+    description: "Tầng Business Vault"
+    definition:
+      method: tag
+      value: dv_bv
+
+  - name: cap_mg_asof
+    description: "Tầng As-of"
+    definition:
+      method: tag
+      value: asof
+
+  - name: cap_mg_gold
+    description: "Tầng Gold"
+    definition:
+      method: tag
+      value: gold
+
+  - name: cap_mg_all
+    description: "Toàn bộ pipeline CAP-MG"
+    definition:
+      union:
+        - method: tag
+          value: staging
+        - method: tag
+          value: dv_raw
+        - method: tag
+          value: dv_bv
+        - method: tag
+          value: asof
+        - method: tag
+          value: gold
+        - method: path
+          value: tests/khung

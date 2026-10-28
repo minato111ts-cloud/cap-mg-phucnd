@@ -1,0 +1,139 @@
+{
+  "de": "MG",
+  "project": "cap_mg",
+  "level": "tĩnh + dbt",
+  "results": [
+    {
+      "code": "KHUNG-CAUTRUC",
+      "status": "ĐẠT",
+      "detail": "Đủ 15 tệp, thư mục bắt buộc",
+      "fix": ""
+    },
+    {
+      "code": "KHUNG-INIT",
+      "status": "ĐẠT",
+      "detail": "Commit đầu da074aa9 là kết quả dbt init; 2 commit trên finova-dbt/",
+      "fix": ""
+    },
+    {
+      "code": "KHUNG-PIN",
+      "status": "ĐẠT",
+      "detail": "dbt-core 1.12.5, dbt-postgres 1.11.0 ghim ở pyproject và uv.lock; require-dbt-version >=1.12.0 <2.0.0",
+      "fix": ""
+    },
+    {
+      "code": "KHUNG-TEN",
+      "status": "ĐẠT",
+      "detail": "name và profile là cap_mg",
+      "fix": ""
+    },
+    {
+      "code": "KHUNG-PROFILE",
+      "status": "ĐẠT",
+      "detail": "profiles.example.yml: 1 target, mật khẩu và database qua env_var, role finova_dbt",
+      "fix": ""
+    },
+    {
+      "code": "KHUNG-ENV",
+      "status": "ĐẠT",
+      "detail": ".env.example đủ biến, không có mật khẩu; .gitignore đủ mục",
+      "fix": ""
+    },
+    {
+      "code": "KHUNG-BIMAT",
+      "status": "ĐẠT",
+      "detail": "Không thấy mật khẩu, DSN có mật khẩu trong tệp sẽ vào git",
+      "fix": ""
+    },
+    {
+      "code": "KHUNG-BOOTSTRAP",
+      "status": "ĐẠT",
+      "detail": "Sáu schema, hai role NOLOGIN, có default privileges",
+      "fix": ""
+    },
+    {
+      "code": "KHUNG-CAUHINH",
+      "status": "ĐẠT",
+      "detail": "5 thư mục tầng đủ schema, vật chất hóa, tag",
+      "fix": ""
+    },
+    {
+      "code": "KHUNG-VARS",
+      "status": "ĐẠT",
+      "detail": "Không có mặc định cho lo_ts, hi_ts, as_of_date; gold_ready_local_time = 06:00",
+      "fix": ""
+    },
+    {
+      "code": "KHUNG-SELECTOR",
+      "status": "ĐẠT",
+      "detail": "Đủ bảy selector: cap_mg_khung, cap_mg_staging, cap_mg_raw, cap_mg_bv, cap_mg_asof, cap_mg_gold, cap_mg_all",
+      "fix": ""
+    },
+    {
+      "code": "KHUNG-MACRO",
+      "status": "ĐẠT",
+      "detail": "generate_schema_name ở finova-dbt\\macros\\finova_macros.sql; dv_hash ở finova-dbt\\macros\\finova_macros.sql; dv_window ở finova-dbt\\macros\\finova_macros.sql",
+      "fix": ""
+    },
+    {
+      "code": "KHUNG-KAT",
+      "status": "ĐẠT",
+      "detail": "1 tệp trong tests/khung gọi dv_hash, đủ 4 giá trị KAT",
+      "fix": ""
+    },
+    {
+      "code": "KHUNG-NONOW",
+      "status": "ĐẠT",
+      "detail": "Không có hàm thời gian trong models/, macros/",
+      "fix": ""
+    },
+    {
+      "code": "KHUNG-DBT-PHIENBAN",
+      "status": "ĐẠT",
+      "detail": "dbt-core 1.12.5, dbt-postgres 1.11.0",
+      "fix": ""
+    },
+    {
+      "code": "KHUNG-KETNOI",
+      "status": "KHÔNG ĐẠT",
+      "detail": "dbt debug chưa đạt: 02:25:00  [ERROR]: Encountered an error: | Parsing Error | Env var required but not provided: 'CAP_DBNAME'",
+      "fix": "Kiểm FINOVA_PG_PASSWORD, CAP_DBNAME, DBT_PROFILES_DIR; sai mật khẩu thường là do thiếu biến môi trường"
+    },
+    {
+      "code": "KHUNG-ROLE",
+      "status": "BỎ QUA",
+      "detail": "Chưa chạy vì phiên bản dbt hoặc kết nối chưa đạt",
+      "fix": ""
+    },
+    {
+      "code": "KHUNG-QUYEN",
+      "status": "BỎ QUA",
+      "detail": "Chưa chạy vì phiên bản dbt hoặc kết nối chưa đạt",
+      "fix": ""
+    },
+    {
+      "code": "KHUNG-SCHEMA",
+      "status": "BỎ QUA",
+      "detail": "Chưa chạy vì phiên bản dbt hoặc kết nối chưa đạt",
+      "fix": ""
+    },
+    {
+      "code": "KHUNG-CUASO",
+      "status": "BỎ QUA",
+      "detail": "Chưa chạy vì phiên bản dbt hoặc kết nối chưa đạt",
+      "fix": ""
+    },
+    {
+      "code": "KHUNG-SELECTOR-CHAY",
+      "status": "BỎ QUA",
+      "detail": "Chưa chạy vì phiên bản dbt hoặc kết nối chưa đạt",
+      "fix": ""
+    },
+    {
+      "code": "KHUNG-KAT-HAIPHIEN",
+      "status": "BỎ QUA",
+      "detail": "Chưa chạy vì phiên bản dbt hoặc kết nối chưa đạt",
+      "fix": ""
+    }
+  ]
+}

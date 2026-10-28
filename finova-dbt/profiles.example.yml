@@ -1,0 +1,13 @@
+cap_mg:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('CAP_PGHOST', '127.0.0.1') }}"
+      port: "{{ env_var('CAP_PGPORT', '5432') | as_number }}"
+      user: postgres
+      password: "{{ env_var('FINOVA_PG_PASSWORD') }}"
+      dbname: "{{ env_var('CAP_DBNAME') }}"
+      schema: staging
+      role: finova_dbt
+      threads: 4
