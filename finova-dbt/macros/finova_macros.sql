@@ -17,20 +17,36 @@
 {%- endmacro %}
 
 
-{% macro dv_fmt_val(expr) -%}
-    case
-        when ({{ expr }}) is null then '<NULL>'
-        when pg_typeof({{ expr }})::text = 'timestamp with time zone' then
-            to_char(({{ expr }}) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
-        when pg_typeof({{ expr }})::text = 'timestamp without time zone' then
-            to_char(({{ expr }}), 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
-        when pg_typeof({{ expr }})::text = 'date' then
-            to_char(({{ expr }}), 'YYYY-MM-DD')
-        when pg_typeof({{ expr }})::text = 'boolean' then
-            case when ({{ expr }})::boolean then 'true' else 'false' end
-        else
-            normalize(({{ expr }})::text, NFC)
-    end
+{% macro dv_fmt_val(item) -%}
+    {%- if item is mapping -%}
+        {%- set expr = item['expr'] -%}
+        {%- set dtype = item['type'] | lower -%}
+    {%- elif item is sequence and item is not string -%}
+        {%- set expr = item[0] -%}
+        {%- set dtype = item[1] | lower -%}
+    {%- else -%}
+        {%- set expr = item | string -%}
+        {%- set s = expr | lower | trim -%}
+        {%- if '::timestamptz' in s or '::timestamp with time zone' in s or s.endswith('_ts') -%}
+            {%- set dtype = 'timestamptz' -%}
+        {%- elif '::date' in s or s.endswith('_date') or s in ['frdate', 'todate', 'effdate', 'joindate', 'leavedate', 'txdate'] -%}
+            {%- set dtype = 'date' -%}
+        {%- elif '::bool' in s or s.startswith('is_') or s in ['true', 'false'] -%}
+            {%- set dtype = 'boolean' -%}
+        {%- else -%}
+            {%- set dtype = 'text' -%}
+        {%- endif -%}
+    {%- endif -%}
+
+    {%- if dtype == 'timestamptz' -%}
+        coalesce(to_char(({{ expr }}) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'), '<NULL>')
+    {%- elif dtype == 'date' -%}
+        coalesce(to_char(({{ expr }}), 'YYYY-MM-DD'), '<NULL>')
+    {%- elif dtype == 'boolean' -%}
+        case when ({{ expr }}) is null then '<NULL>' when ({{ expr }}) then 'true' else 'false' end
+    {%- else -%}
+        coalesce(normalize(({{ expr }})::text, NFC), '<NULL>')
+    {%- endif -%}
 {%- endmacro %}
 
 

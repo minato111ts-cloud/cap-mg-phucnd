@@ -12,7 +12,7 @@
     {
       "code": "KHUNG-INIT",
       "status": "ĐẠT",
-      "detail": "Commit đầu da074aa9 là kết quả dbt init; 2 commit trên finova-dbt/",
+      "detail": "Commit đầu da074aa9 là kết quả dbt init; 3 commit trên finova-dbt/",
       "fix": ""
     },
     {
@@ -95,44 +95,44 @@
     },
     {
       "code": "KHUNG-KETNOI",
-      "status": "KHÔNG ĐẠT",
-      "detail": "dbt debug chưa đạt: 02:25:00  [ERROR]: Encountered an error: | Parsing Error | Env var required but not provided: 'CAP_DBNAME'",
-      "fix": "Kiểm FINOVA_PG_PASSWORD, CAP_DBNAME, DBT_PROFILES_DIR; sai mật khẩu thường là do thiếu biến môi trường"
+      "status": "ĐẠT",
+      "detail": "dbt debug: All checks passed!",
+      "fix": ""
     },
     {
       "code": "KHUNG-ROLE",
-      "status": "BỎ QUA",
-      "detail": "Chưa chạy vì phiên bản dbt hoặc kết nối chưa đạt",
+      "status": "ĐẠT",
+      "detail": "dbt chạy dưới role finova_dbt (đăng nhập bằng postgres)",
       "fix": ""
     },
     {
       "code": "KHUNG-QUYEN",
-      "status": "BỎ QUA",
-      "detail": "Chưa chạy vì phiên bản dbt hoặc kết nối chưa đạt",
+      "status": "ĐẠT",
+      "detail": "Hai role NOLOGIN; 18 ô quyền đúng ma trận; có default privileges trên landing",
       "fix": ""
     },
     {
       "code": "KHUNG-SCHEMA",
-      "status": "BỎ QUA",
-      "detail": "Chưa chạy vì phiên bản dbt hoặc kết nối chưa đạt",
+      "status": "ĐẠT",
+      "detail": "generate_schema_name trả đúng staging, atomic, asof, mart",
       "fix": ""
     },
     {
       "code": "KHUNG-CUASO",
-      "status": "BỎ QUA",
-      "detail": "Chưa chạy vì phiên bản dbt hoặc kết nối chưa đạt",
+      "status": "ĐẠT",
+      "detail": "dv_window dừng khi thiếu var; có var thì sinh đúng (lo, hi]",
       "fix": ""
     },
     {
       "code": "KHUNG-SELECTOR-CHAY",
-      "status": "BỎ QUA",
-      "detail": "Chưa chạy vì phiên bản dbt hoặc kết nối chưa đạt",
+      "status": "ĐẠT",
+      "detail": "dbt ls chạy được cả bảy selector; cap_mg_khung chọn 1 test",
       "fix": ""
     },
     {
       "code": "KHUNG-KAT-HAIPHIEN",
-      "status": "BỎ QUA",
-      "detail": "Chưa chạy vì phiên bản dbt hoặc kết nối chưa đạt",
+      "status": "ĐẠT",
+      "detail": "KAT xanh ở hai phiên TimeZone UTC và Asia/Ho_Chi_Minh",
       "fix": ""
     }
   ]
