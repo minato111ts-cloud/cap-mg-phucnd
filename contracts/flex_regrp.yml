@@ -1,0 +1,55 @@
+source_id: flex
+table: flex_regrp
+table_kind: entity_snapshot
+capture_mode: full_snapshot
+format: csv
+business_key: [GRPID]
+grain: "Một đơn vị tổ chức (Hội sở, Chi nhánh, Nhóm) trong một bản chụp cuối ngày"
+event_ts:
+  expr: "commit_ts của lô trong manifest.csv"
+  fallback: []
+  reason: "EFFDATE là ngày hiệu lực nghiệp vụ của cấu trúc tổ chức, không phải thời điểm bản chụp được xuất ở nguồn"
+ingested_ts_rule: commit_ts_simulated
+mutability: mutable
+columns:
+  - name: GRPID
+    type: text
+    nullable: false
+    normalize: [trim, upper]
+    formats: ["^(HO|CN[0-9]+|G[0-9]+)$"]
+    on_invalid: reject
+  - name: PARENTID
+    type: text
+    nullable: true
+    normalize: [trim, upper]
+    formats: ["^(HO|CN[0-9]+|G[0-9]+)$"]
+    on_invalid: null_and_count
+  - name: GRPNAME
+    type: text
+    nullable: false
+    normalize: [trim]
+    formats: []
+    on_invalid: reject
+  - name: GRPLEVEL
+    type: numeric
+    nullable: false
+    normalize: [trim]
+    formats: ["^[0-2]$"]
+    on_invalid: reject
+  - name: EFFDATE
+    type: date
+    nullable: false
+    normalize: [trim]
+    formats: ["DD/MM/YYYY", "YYYY-MM-DD"]
+    on_invalid: null_and_count
+  - name: STATUS
+    type: text
+    nullable: false
+    normalize: [trim, upper]
+    formats: ["^[AC]$"]
+    on_invalid: reject
+allcode: {}
+pii_columns: []
+reject_rules: [KEY_NULL, KEY_FORMAT, CYCLE_DETECTED, CONFLICT_IN_BATCH]
+schema_drift: {new_column: add_nullable_and_log}
+

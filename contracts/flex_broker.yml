@@ -1,0 +1,67 @@
+source_id: flex
+table: flex_broker
+table_kind: entity_snapshot
+capture_mode: full_snapshot
+format: csv
+business_key: [BROKERID, JOINDATE]
+grain: "Một nhân sự môi giới tại một bản chụp cuối ngày (phân biệt tái sử dụng mã qua JOINDATE theo DEC-CAP-MG-BROKERKEY)"
+event_ts:
+  expr: "commit_ts của lô trong manifest.csv"
+  fallback: []
+  reason: "Bảng snapshot hồ sơ môi giới không có cột timestamp cập nhật bản ghi; JOINDATE và LEAVEDATE là ngày hiệu lực nhân sự"
+ingested_ts_rule: commit_ts_simulated
+mutability: mutable
+columns:
+  - name: BROKERID
+    type: text
+    nullable: false
+    normalize: [trim, upper]
+    formats: ["^BRK[0-9]{3}$"]
+    on_invalid: reject
+  - name: FULLNAME
+    type: text
+    nullable: false
+    normalize: [trim]
+    formats: []
+    on_invalid: null_and_count
+  - name: GRPID
+    type: text
+    nullable: false
+    normalize: [trim, upper]
+    formats: ["^G[0-9]+$"]
+    on_invalid: reject
+  - name: STATUS
+    type: text
+    nullable: false
+    normalize: [trim, upper]
+    formats: ["^[AC]$"]
+    on_invalid: reject
+  - name: EMAIL
+    type: text
+    nullable: true
+    normalize: [trim]
+    formats: []
+    on_invalid: null_and_count
+  - name: MOBILE
+    type: text
+    nullable: true
+    normalize: [trim]
+    formats: []
+    on_invalid: null_and_count
+  - name: JOINDATE
+    type: date
+    nullable: false
+    normalize: [trim]
+    formats: ["DD/MM/YYYY", "YYYY-MM-DD"]
+    on_invalid: reject
+  - name: LEAVEDATE
+    type: date
+    nullable: true
+    normalize: [trim]
+    formats: ["DD/MM/YYYY", "YYYY-MM-DD"]
+    on_invalid: null_and_count
+allcode: {}
+pii_columns: [FULLNAME, EMAIL, MOBILE]
+reject_rules: [KEY_NULL, KEY_FORMAT, ALLCODE_UNKNOWN, CONFLICT_IN_BATCH]
+schema_drift: {new_column: add_nullable_and_log}
+

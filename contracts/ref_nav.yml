@@ -1,0 +1,37 @@
+source_id: flex
+table: ref_nav
+table_kind: daily_log
+capture_mode: full_snapshot
+format: csv
+business_key: [TXDATE, AFACCTNO]
+grain: "Giá trị tài sản ròng (NAV) cuối ngày của một tiểu khoản tại ngày giao dịch TXDATE"
+event_ts:
+  expr: "commit_ts của lô trong manifest.csv"
+  fallback: ["(TXDATE::date + interval '22 hours') at time zone 'Asia/Ho_Chi_Minh'"]
+  reason: "NAV được chốt cuối ngày giao dịch TXDATE khi xuất lô báo cáo"
+ingested_ts_rule: commit_ts_simulated
+mutability: immutable
+columns:
+  - name: TXDATE
+    type: date
+    nullable: false
+    normalize: [trim]
+    formats: ["DD/MM/YYYY", "YYYY-MM-DD"]
+    on_invalid: reject
+  - name: AFACCTNO
+    type: text
+    nullable: false
+    normalize: [trim, upper]
+    formats: ["^[0-9]{10}$"]
+    on_invalid: reject
+  - name: NAV
+    type: numeric
+    nullable: false
+    normalize: [trim]
+    formats: ["^[0-9]+(\\.[0-9]+)?$"]
+    on_invalid: reject
+allcode: {}
+pii_columns: []
+reject_rules: [KEY_NULL, KEY_FORMAT, INVALID_NUMERIC]
+schema_drift: {new_column: add_nullable_and_log}
+

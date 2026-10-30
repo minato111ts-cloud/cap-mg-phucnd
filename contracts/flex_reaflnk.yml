@@ -1,0 +1,61 @@
+source_id: flex
+table: flex_reaflnk
+table_kind: entity_snapshot
+capture_mode: full_snapshot
+format: csv
+business_key: [AUTOID]
+grain: "Một bản ghi phân công môi giới chăm sóc tiểu khoản có khoảng hiệu lực [FRDATE, TODATE] tại một bản chụp"
+event_ts:
+  expr: "commit_ts của lô trong manifest.csv"
+  fallback: ["LASTCHANGE::date + interval '22 hours' (giờ Việt Nam)"]
+  reason: "Phân công có hai trục thời gian: FRDATE/TODATE là ngày hiệu lực nghiệp vụ (có thể nhập trước hoặc lùi về quá khứ), còn LASTCHANGE không giữ nguyên khi đóng TODATE của dòng cũ; do đó event_ts của bản chụp lấy theo commit_ts của lô"
+ingested_ts_rule: commit_ts_simulated
+mutability: mutable
+columns:
+  - name: AUTOID
+    type: text
+    nullable: false
+    normalize: [trim]
+    formats: ["^[0-9]+$"]
+    on_invalid: reject
+  - name: REACCTNO
+    type: text
+    nullable: false
+    normalize: [trim, upper]
+    formats: ["^BRK[0-9]{3}$"]
+    on_invalid: reject
+  - name: AFACCTNO
+    type: text
+    nullable: false
+    normalize: [trim, upper]
+    formats: ["^[0-9]{10}$"]
+    on_invalid: reject
+  - name: FRDATE
+    type: date
+    nullable: false
+    normalize: [trim]
+    formats: ["DD/MM/YYYY", "YYYY-MM-DD"]
+    on_invalid: reject
+  - name: TODATE
+    type: date
+    nullable: false
+    normalize: [trim]
+    formats: ["DD/MM/YYYY", "YYYY-MM-DD"]
+    on_invalid: reject
+  - name: STATUS
+    type: text
+    nullable: false
+    normalize: [trim, upper]
+    formats: ["^[AC]$"]
+    on_invalid: reject
+  - name: LASTCHANGE
+    type: date
+    nullable: false
+    normalize: [trim]
+    formats: ["DD/MM/YYYY", "YYYY-MM-DD"]
+    on_invalid: null_and_count
+allcode: {}
+pii_columns: []
+reject_rules: [KEY_NULL, KEY_FORMAT, INVALID_DATE_RANGE, CONFLICT_IN_BATCH]
+schema_drift: {new_column: add_nullable_and_log}
+

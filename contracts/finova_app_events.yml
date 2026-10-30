@@ -1,0 +1,66 @@
+source_id: finova_app
+table: finova_app_events
+table_kind: transaction_log
+capture_mode: incremental
+format: jsonl
+business_key: [event_id]
+grain: "Một sự kiện tương tác của môi giới với tiểu khoản khách hàng trên ứng dụng Finova"
+event_ts:
+  expr: "case when event_ts::timestamptz > server_ts::timestamptz + interval '5 minutes' then server_ts::timestamptz else event_ts::timestamptz end"
+  fallback: ["server_ts::timestamptz"]
+  reason: "Lấy giờ thiết bị (event_ts) làm thời điểm diễn ra tương tác; nhưng khi đồng hồ thiết bị lệch về tương lai quá 5 phút so với server_ts (DQ-TUONGLAI) thì thay bằng server_ts và gắn cờ"
+ingested_ts_rule: commit_ts_simulated
+mutability: immutable
+columns:
+  - name: event_id
+    type: text
+    nullable: false
+    normalize: [trim, lower]
+    formats: ["^[0-9a-f-]{36}$"]
+    on_invalid: reject
+  - name: broker_id
+    type: text
+    nullable: false
+    normalize: [trim, upper]
+    formats: ["^BRK[0-9]{3}$"]
+    on_invalid: reject
+  - name: afacctno
+    type: text
+    nullable: false
+    normalize: [trim, upper]
+    formats: ["^[0-9]{10}$"]
+    on_invalid: reject
+  - name: event_type
+    type: text
+    nullable: false
+    normalize: [trim, upper]
+    formats: ["^(CALL|MEET|MSG|NOTE)$"]
+    on_invalid: reject
+  - name: event_ts
+    type: timestamptz
+    nullable: false
+    normalize: [trim]
+    formats: ["ISO-8601"]
+    on_invalid: reject
+  - name: server_ts
+    type: timestamptz
+    nullable: false
+    normalize: [trim]
+    formats: ["ISO-8601"]
+    on_invalid: reject
+  - name: duration_sec
+    type: numeric
+    nullable: true
+    normalize: [trim]
+    formats: ["^[0-9]+$"]
+    on_invalid: null_and_count
+  - name: outcome
+    type: text
+    nullable: true
+    normalize: [trim, upper]
+    formats: ["^(REACHED|NO_ANSWER|FOLLOW_UP)$"]
+    on_invalid: null_and_count
+allcode: { event_type: event_type.csv }
+pii_columns: []
+reject_rules: [KEY_NULL, KEY_FORMAT, ALLCODE_UNKNOWN, CONFLICT_IN_BATCH]
+schema_drift: { new_column: add_nullable_and_log }

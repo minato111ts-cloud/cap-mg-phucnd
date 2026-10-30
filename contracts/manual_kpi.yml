@@ -1,0 +1,62 @@
+source_id: manual
+table: manual_kpi
+table_kind: entity_snapshot
+capture_mode: full_snapshot
+format: xlsx
+header_rows: 2
+business_key: [broker_id]
+grain: "Chỉ tiêu KPI Quý 2/2026 của một mã môi giới trong một phiên bản file Excel đã duyệt"
+event_ts:
+  expr: "commit_ts của lô trong manifest.csv"
+  fallback: ["(approved_date::date + interval '15 hours') at time zone 'Asia/Ho_Chi_Minh'"]
+  reason: "File chỉ tiêu nhập tay chỉ bắt đầu có hiệu lực trong hệ thống từ thời điểm chốt/nạp phiên bản file (commit_ts)"
+ingested_ts_rule: commit_ts_simulated
+mutability: mutable
+columns:
+  - name: broker_id
+    type: text
+    nullable: false
+    normalize: [trim, upper]
+    formats: ["^BRK[0-9]{3}$"]
+    on_invalid: reject
+  - name: fullname
+    type: text
+    nullable: true
+    normalize: [trim]
+    formats: []
+    on_invalid: null_and_count
+  - name: target_new_clients
+    type: numeric
+    nullable: false
+    normalize: [trim]
+    formats: ["^[0-9]+$"]
+    on_invalid: reject
+  - name: target_calls
+    type: numeric
+    nullable: false
+    normalize: [trim]
+    formats: ["^[0-9]+$"]
+    on_invalid: reject
+  - name: target_aum_bil
+    type: numeric
+    nullable: false
+    normalize: [trim, comma_to_dot]
+    formats: ["^[0-9]+(\\.[0-9]+)?$"]
+    on_invalid: reject
+  - name: approver
+    type: text
+    nullable: false
+    normalize: [trim]
+    formats: []
+    on_invalid: reject
+  - name: approved_date
+    type: date
+    nullable: false
+    normalize: [trim]
+    formats: ["DD/MM/YYYY", "YYYY-MM-DD"]
+    on_invalid: reject
+allcode: {}
+pii_columns: [fullname]
+reject_rules: [KEY_NULL, KEY_FORMAT, UNAPPROVED_ROW, FORMULA_ERROR]
+schema_drift: {new_column: add_nullable_and_log}
+
