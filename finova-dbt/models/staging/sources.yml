@@ -1,0 +1,26 @@
+version: 2
+
+sources:
+  - name: landing
+    schema: landing
+    description: "Vùng lưu trữ dữ liệu thô nguyên bản từ các tệp nguồn (Inbound) theo manifest. Danh mục ref/ là seed (seeds/ref_*.csv), không nằm ở landing"
+    tables:
+      - name: flex_regrp
+        description: "Bản chụp cấu trúc cây tổ chức đơn vị từ Core FLEX"
+      - name: flex_broker
+        description: "Bản chụp danh sách hồ sơ nhân sự môi giới từ Core FLEX"
+      - name: flex_reaflnk
+        description: "Bản chụp danh sách phân công môi giới chăm sóc tiểu khoản từ Core FLEX"
+      - name: ref_nav
+        description: "Bản chụp giá trị tài sản ròng (NAV) cuối ngày của tiểu khoản từ Core FLEX"
+      - name: finova_app_events
+        description: "Luồng sự kiện tương tác giữa môi giới và khách hàng trên ứng dụng Finova App"
+      - name: manual_kpi
+        description: "Bản chụp chỉ tiêu KPI Quý 2/2026 nhập tay từ bảng tính Excel phòng Kinh doanh"
+
+  - name: ctrl
+    schema: ctrl
+    description: "Sổ nạp và sổ chạy (mục 2.3.1). Staging chỉ đọc để đối soát, không ghi"
+    tables:
+      - name: batch_log
+        description: "Mỗi lần loader xử lý một lô; rows_loaded là số dòng đã ghi vào landing"

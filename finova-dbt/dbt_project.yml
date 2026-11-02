@@ -19,6 +19,19 @@ clean-targets:
 
 vars:
   gold_ready_local_time: "06:00"
+  # Ngưỡng nghiệp vụ (INV-M6): phải bằng customers/ctcka/thresholds.yaml,
+  # test tests/loader test_thresholds_sync_with_dbt_vars chặn lệch. Runner có thể ghi đè qua --vars.
+  event_future_tolerance_minutes: 5
+
+seeds:
+  cap_mg:
+    # Danh mục ref/ của gói đề: đọc bằng ref(), không nạp vào landing (landing chỉ chứa lô theo manifest)
+    +schema: staging
+    +tags: ["staging"]
+    +quote_columns: false
+    +column_types:
+      calendar_date: date
+      is_trading_day: integer
 
 models:
   cap_mg:

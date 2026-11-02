@@ -1,0 +1,161 @@
+version: 2
+
+# Mỗi nguồn có một view hợp lệ và một view __rejected cùng cột, thêm reason_code (DEC-ELT-REJECT).
+# Logic phân loại nằm ở macros/staging/<model>.sql. Test singular ở tests/staging/:
+#   GT-STG-RECON, GT-STG-KEYTS, GT-STG-PII, TC-CAP-MG-EVENTTIME, TC-CAP-MG-EXCEL, DQ-MOCOI (warn),
+#   test_stg_broker_hk_consistent (DEC-CAP-MG-BROKERKEY). TC-NEN-HASH-TZ ở tests/staging/test_hash_tz.py.
+
+models:
+  - name: stg_flex__regrp
+    description: "Cây đơn vị đã chuẩn hóa; dòng nằm trên vòng (mọi độ dài) bị loại CYCLE_DETECTED."
+    columns:
+      - name: regrp_hk
+        description: "dv_hash('FLEX', grpid)"
+        tests: [not_null]
+      - name: grpid
+        tests: [not_null]
+      - name: sat_regrp_hd
+        tests: [not_null]
+      - name: ingested_ts
+        tests: [not_null]
+      - name: event_ts
+        tests: [not_null]
+      - name: grplevel
+        description: "Cấp đơn vị; giá trị không đọc được thành NULL và được đếm (CANHBAO)"
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+  - name: stg_flex__regrp__rejected
+    description: "Dòng cây đơn vị bị loại (KEY_NULL, KEY_FORMAT, ALLCODE_UNKNOWN, CYCLE_DETECTED, CONFLICT_IN_BATCH, DUPLICATE_ROW)."
+    columns:
+      - name: reason_code
+        tests: [not_null]
+
+  - name: stg_flex__broker
+    description: "Môi giới; hub khóa theo mã nguồn ('FLEX', BROKERID) theo DEC-CAP-MG-BROKERKEY PA A. PII chỉ ở dạng đã che."
+    columns:
+      - name: broker_hk
+        description: "dv_hash('FLEX', broker_id), cùng công thức ở mọi staging mang mã môi giới"
+        tests: [not_null]
+      - name: broker_id
+        tests: [not_null]
+      - name: sat_broker_profile_hd
+        tests: [not_null]
+      - name: join_date
+        description: "Ngày vào làm của người đang mang mã; thuộc tính trong hashdiff (CANHBAO nếu thiếu)"
+        tests:
+          - not_null:
+              config:
+                severity: warn
+      - name: grpid
+        description: "Nhóm của môi giới; thiếu thì không dựng được link môi giới - nhóm, dòng vẫn nhận (CANHBAO)"
+        tests:
+          - not_null:
+              config:
+                severity: warn
+      - name: broker_key
+        description: "Khóa người (BROKERID:YYYY-MM-DD) để Business Vault/Gold tách người khi mã bị cấp lại; không phải khóa hub"
+      - name: ingested_ts
+        tests: [not_null]
+      - name: event_ts
+        tests: [not_null]
+
+  - name: stg_flex__broker__rejected
+    description: "Dòng môi giới bị loại (KEY_NULL, KEY_FORMAT, ALLCODE_UNKNOWN, CONFLICT_IN_BATCH, DUPLICATE_ROW)."
+    columns:
+      - name: reason_code
+        tests: [not_null]
+
+  - name: stg_flex__reaflnk
+    description: "Phân công môi giới chăm sóc tiểu khoản; hiệu lực [fr_date, to_date] là trục nghiệp vụ, ingested_ts là trục hệ thống."
+    columns:
+      - name: reaflnk_hk
+        tests: [not_null]
+      - name: broker_hk
+        tests: [not_null]
+      - name: account_hk
+        tests: [not_null]
+      - name: sat_reaflnk_hd
+        tests: [not_null]
+      - name: fr_date
+        tests: [not_null]
+      - name: to_date
+        tests: [not_null]
+      - name: ingested_ts
+        tests: [not_null]
+      - name: event_ts
+        tests: [not_null]
+
+  - name: stg_flex__reaflnk__rejected
+    description: "Phân công bị loại (KEY_NULL, KEY_FORMAT, INVALID_DATE, INVALID_DATE_RANGE, ALLCODE_UNKNOWN, CONFLICT_IN_BATCH, DUPLICATE_ROW)."
+    columns:
+      - name: reason_code
+        tests: [not_null]
+
+  - name: stg_ref__nav
+    description: "NAV cuối ngày của tiểu khoản; satellite theo ngày trên hub tiểu khoản."
+    columns:
+      - name: account_hk
+        tests: [not_null]
+      - name: tx_date
+        tests: [not_null]
+      - name: nav
+        tests: [not_null]
+      - name: sat_account_nav_hd
+        tests: [not_null]
+      - name: ingested_ts
+        tests: [not_null]
+      - name: event_ts
+        tests: [not_null]
+
+  - name: stg_ref__nav__rejected
+    description: "NAV bị loại (KEY_NULL, INVALID_DATE, KEY_FORMAT, INVALID_NUMERIC, CONFLICT_IN_BATCH, DUPLICATE_ROW)."
+    columns:
+      - name: reason_code
+        tests: [not_null]
+
+  - name: stg_finova_app__events
+    description: "Sự kiện tương tác; khử trùng trong lô, sửa giờ thiết bị lệch tương lai theo ngưỡng cấu hình."
+    columns:
+      - name: event_hk
+        description: "dv_hash('FINOVA_APP', event_id); event_id duy nhất trong mỗi lô, trùng giữa các lô do raw vault giữ lần thấy đầu"
+        tests: [not_null]
+      - name: broker_hk
+        tests: [not_null]
+      - name: account_hk
+        tests: [not_null]
+      - name: event_ts
+        tests: [not_null]
+      - name: is_future_ts_fixed
+        tests: [not_null]
+      - name: ingested_ts
+        tests: [not_null]
+
+  - name: stg_finova_app__events__rejected
+    description: "Sự kiện bị loại (KEY_NULL, KEY_FORMAT, ALLCODE_UNKNOWN, INVALID_TIMESTAMP, CONFLICT_IN_BATCH); DUPLICATE_EVENT là bản lặp đã khử (hướng SUA)."
+    columns:
+      - name: reason_code
+        tests: [not_null]
+
+  - name: stg_manual__kpi
+    description: "Chỉ tiêu quý đã duyệt; satellite trên hub môi giới. Phiên bản file sau thay phiên bản trước từ ingested_ts của nó."
+    columns:
+      - name: broker_hk
+        tests: [not_null]
+      - name: sat_broker_kpi_hd
+        tests: [not_null]
+      - name: excel_row_no
+        description: "Dòng vật lý trong file Excel để truy lại ô gốc"
+        tests: [not_null]
+      - name: ingested_ts
+        tests: [not_null]
+      - name: event_ts
+        tests: [not_null]
+
+  - name: stg_manual__kpi__rejected
+    description: "Dòng chỉ tiêu bị loại (FORMULA_ERROR, KEY_NULL, KEY_FORMAT, UNAPPROVED_ROW, INVALID_NUMERIC, CONFLICT_IN_BATCH, DUPLICATE_ROW)."
+    columns:
+      - name: reason_code
+        tests: [not_null]
