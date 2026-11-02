@@ -18,7 +18,8 @@ with parsed as (
     select
         l.source_id, l.batch_id, l.ingested_ts, l.event_ts, l.record_hash, l.source_row_no,
         {{ stg_code('l.brokerid') }} as broker_id,
-        {{ stg_code('l.grpid') }} as grpid,
+        -- null_and_count theo hợp đồng: GRPID sai mẫu thì NULL, mất link môi giới - nhóm nhưng giữ dòng
+        {{ stg_code_fmt('l.grpid', '^G[0-9]+$') }} as grpid,
         {{ stg_code('l.status') }} as status,
         nullif(btrim(l.fullname), '') as fullname,
         nullif(btrim(l.email), '') as email,

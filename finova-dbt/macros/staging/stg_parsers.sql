@@ -80,6 +80,20 @@ nullif(upper(btrim({{ col }})), '')
 {%- endmacro %}
 
 
+{#
+  Cột thuộc tính có mẫu trong hợp đồng với on_invalid: null_and_count: sai mẫu thì NULL (nhận dòng),
+  test warn test_stg_attr_nulled đếm. Mẫu so sau trim + viết hoa, như stg_code.
+#}
+{% macro stg_code_fmt(col, pattern) -%}
+(case when {{ stg_code(col) }} ~ '{{ pattern }}' then {{ stg_code(col) }} end)
+{%- endmacro %}
+
+{# Số nguyên không dấu, đúng mẫu '^[0-9]+$' của hợp đồng (không nhận dấu phân cách, số âm) #}
+{% macro stg_parse_uint(col, pattern='^[0-9]+$') -%}
+(case when btrim({{ col }}) ~ '{{ pattern }}' then btrim({{ col }})::bigint end)
+{%- endmacro %}
+
+
 {# Che dữ liệu định danh (GT-STG-PII): chỉ giữ 4 số cuối điện thoại, ký tự đầu và tên miền của email #}
 {% macro stg_mask_mobile(col) -%}
 case when nullif(btrim({{ col }}), '') is not null
@@ -95,12 +109,14 @@ end
 
 
 {#
-  Một dòng trong lô: cùng khóa, cùng hash nội dung -> dòng lặp (DQ-TRUNG-NGUYEN, SUA: giữ dòng đầu);
+  Cùng một lần thấy (ingested_ts): cùng khóa, cùng hash nội dung -> dòng lặp (DQ-TRUNG-NGUYEN, SUA: giữ dòng đầu);
   cùng khóa, khác hash nội dung -> xung đột (DQ-TRUNG-XUNGDOT, LOAI mọi dòng của khóa đó).
-  Chỉ xét trong một lô (batch_id): lô khác nhau là các lần thấy khác nhau, vault tự giữ lần thấy đầu.
+  Gom theo ingested_ts chứ không theo batch_id: mọi dòng của một lô cùng ingested_ts nên vẫn bao trọn
+  xét trong lô, và bắt thêm hai lô khác nhau cùng ingested_ts mà khác nội dung (GT-STG-KEYTS), trường hợp
+  raw vault không xếp được phiên bản nào thấy trước. Lần thấy khác nhau để vault tự giữ lần thấy đầu.
 #}
 {% macro stg_batch_dup_cols(key_expr, hd_col) -%}
-row_number() over (partition by batch_id, {{ key_expr }} order by source_row_no) as _dup_rank,
-min(encode({{ hd_col }}, 'hex')) over (partition by batch_id, {{ key_expr }})
-    <> max(encode({{ hd_col }}, 'hex')) over (partition by batch_id, {{ key_expr }}) as _has_conflict
+row_number() over (partition by ingested_ts, {{ key_expr }} order by batch_id, source_row_no) as _dup_rank,
+min(encode({{ hd_col }}, 'hex')) over (partition by ingested_ts, {{ key_expr }})
+    <> max(encode({{ hd_col }}, 'hex')) over (partition by ingested_ts, {{ key_expr }}) as _has_conflict
 {%- endmacro %}

@@ -130,6 +130,9 @@ models:
         tests: [not_null]
       - name: is_future_ts_fixed
         tests: [not_null]
+      - name: is_device_ts_invalid
+        description: "Giờ thiết bị có gửi nhưng không đọc được; event_ts khi đó là server_ts"
+        tests: [not_null]
       - name: ingested_ts
         tests: [not_null]
 

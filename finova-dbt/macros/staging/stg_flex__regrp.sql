@@ -18,9 +18,10 @@ with recursive parsed as (
     select
         l.source_id, l.batch_id, l.ingested_ts, l.event_ts, l.record_hash, l.source_row_no,
         {{ stg_code('l.grpid') }} as grpid,
-        {{ stg_code('l.parentid') }} as parentid,
+        -- thuộc tính có mẫu, null_and_count theo hợp đồng: sai mẫu thì NULL, không loại dòng
+        {{ stg_code_fmt('l.parentid', '^(HO|CN[0-9]+|G[0-9]+)$') }} as parentid,
         nullif(btrim(l.grpname), '') as grpname,
-        {{ stg_parse_int('l.grplevel') }} as grplevel,
+        {{ stg_parse_uint('l.grplevel', '^[0-2]$') }} as grplevel,
         {{ stg_parse_date('l.effdate') }} as effdate,
         {{ stg_code('l.status') }} as status
     from {{ source('landing', 'flex_regrp') }} l

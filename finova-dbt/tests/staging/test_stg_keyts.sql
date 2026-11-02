@@ -2,8 +2,11 @@
 
 -- GT-STG-KEYTS (Bảng 85): không có hai dòng hợp lệ cùng (khóa nghiệp vụ, ingested_ts) mà khác hash_diff
 -- của cùng satellite. Nếu có, raw vault không biết phiên bản nào là "thấy lần đầu".
--- Phép thử âm: bỏ nhánh CONFLICT_IN_BATCH trong một macro stg_*_rows rồi nhân đôi một dòng landing
--- với giá trị khác -> test đỏ.
+-- Phép thử âm (DB thử, chèn thẳng landing nên GT-STG-RECON cũng đỏ theo):
+--   - chèn lô CAP-MG-9999 cùng ingested_ts với CAP-MG-0002, dòng BRK001 khác email, rồi gom xung đột
+--     trong stg_batch_dup_cols theo batch_id thay vì ingested_ts -> test đỏ 1 khóa.
+--   - chỉ bỏ nhánh CONFLICT_IN_BATCH thì test này vẫn xanh (nhánh DUPLICATE_ROW giữ dòng đầu);
+--     trường hợp đó do vế DUP_NOT_IDENTICAL của test_stg_dedup bắt.
 
 {% set checks = [
     ('stg_flex__regrp', 'grpid', 'sat_regrp_hd'),

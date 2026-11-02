@@ -10,7 +10,7 @@
     bkcc_broker, bk_broker, broker_hk,
     account_hk, nhl_broker_event_hd,
     event_id, broker_id, afacctno, event_type,
-    event_ts, device_event_ts, server_ts, event_date, is_future_ts_fixed,
+    event_ts, device_event_ts, server_ts, event_date, is_future_ts_fixed, is_device_ts_invalid,
     duration_sec, outcome,
     record_source, source_id, batch_id, ingested_ts, record_hash, source_row_no
 {%- endmacro %}
@@ -26,9 +26,13 @@ with parsed as (
         {{ stg_code('l.afacctno') }} as afacctno,
         {{ stg_code('l.event_type') }} as event_type,
         {{ stg_parse_ts('l.raw_event_ts') }} as device_event_ts,
+        -- giờ thiết bị có gửi nhưng không đọc được: event_ts lùi về server_ts như thiếu giờ, nhưng gắn cờ để
+        -- D-DQ phân biệt "không gửi" với "gửi sai" (test warn test_stg_attr_nulled đếm)
+        nullif(btrim(l.raw_event_ts), '') is not null and {{ stg_parse_ts('l.raw_event_ts') }} is null as is_device_ts_invalid,
         {{ stg_parse_ts('l.server_ts') }} as server_ts,
-        {{ stg_parse_int('l.duration_sec') }} as duration_sec,
-        {{ stg_code('l.outcome') }} as outcome
+        -- thuộc tính có mẫu, null_and_count theo hợp đồng: sai mẫu thì NULL, không loại dòng
+        {{ stg_parse_uint('l.duration_sec') }} as duration_sec,
+        {{ stg_code_fmt('l.outcome', '^(REACHED|NO_ANSWER|FOLLOW_UP)$') }} as outcome
     from {{ source('landing', 'finova_app_events') }} l
 ),
 
@@ -73,7 +77,7 @@ select
     c.event_id, c.broker_id, c.afacctno, c.event_type,
     c.event_ts, c.device_event_ts, c.server_ts,
     (c.event_ts at time zone 'Asia/Ho_Chi_Minh')::date as event_date,
-    c.is_future_ts_fixed,
+    c.is_future_ts_fixed, c.is_device_ts_invalid,
     c.duration_sec, c.outcome,
     'finova_app.finova_app_events' as record_source,
     c.source_id, c.batch_id, c.ingested_ts, c.record_hash, c.source_row_no,
