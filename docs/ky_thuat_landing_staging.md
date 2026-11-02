@@ -6,7 +6,7 @@
 
 ## Mục đích và cách đọc
 
-Sau lần rà soát landing và staging, có 18 vấn đề cần sửa, từ mức chặn tới mức thấp. Tất cả được ghi ở một file để khi review hay viva chỉ cần mở một chỗ. Mỗi mục `KT-xx` gồm năm phần:
+Sau lần rà soát landing và staging, có 18 vấn đề cần sửa, từ mức chặn tới mức thấp. Lần chạy trên máy thật (02/11/2026) phát hiện thêm 3 vấn đề (KT-19 đến KT-21). Tất cả được ghi ở một file để khi review hay viva chỉ cần mở một chỗ. Mỗi mục `KT-xx` gồm năm phần:
 
 1. **Vấn đề**: sai ở đâu, file nào.
 2. **Lỗi xảy ra thế nào**: cơ chế, kèm hậu quả lên số liệu.
@@ -16,7 +16,14 @@ Sau lần rà soát landing và staging, có 18 vấn đề cần sửa, từ m�
 
 ## Môi trường kiểm chứng
 
-Máy làm bài chặn việc chạy python trong `.venv` (Application Control), nên `uv run dbt` **chưa chạy được**. Việc kiểm chứng làm trên môi trường thay thế, dùng dữ liệu thật của gói đề:
+**Máy thật (02/11/2026).** Smart App Control chặn `python.exe` không ký số của bản Python do uv tải về. Đã chuyển `.venv` sang Python 3.12 bản python.org (có chữ ký PSF) và đặt `python-preference = "only-system"` trong `pyproject.toml`. Trên PostgreSQL 16 cục bộ (service Windows, cổng 5432), database `cap_mg_phucnd` dựng mới:
+
+- Loader nạp 104/104 lô: 61 `LOADED` (5.939 dòng), 43 `SKIPPED_DUP/DUP_CONTENT` (3.322 dòng); tổng 9.261 dòng, bằng tổng `row_count` của manifest. `load_reject` và `schema_drift` rỗng.
+- `uv run dbt build --selector cap_mg_staging`: PASS 69, WARN 1 (DQ-MOCOI, G7 → CN9), ERROR 0.
+- `uv run pytest`: 15 passed.
+- Phép thử âm cần sửa dữ liệu chạy trên bản sao `cap_mg_phucnd_negtest` (pg_dump/pg_restore), không đụng database thật.
+
+**Môi trường thay thế (trước 02/11/2026).** Khi máy thật chưa chạy được `uv run dbt`, việc kiểm chứng làm trên môi trường thay thế, dùng dữ liệu thật của gói đề:
 
 - PostgreSQL 16.15 cục bộ, database `cap_mg_test` dựng từ đầu bằng `setup/bootstrap.sql` và `setup/ctrl.sql` của repo.
 - Loader thật (`python -m loader.load`) nạp toàn bộ 104 lô của manifest.
@@ -24,7 +31,7 @@ Máy làm bài chặn việc chạy python trong `.venv` (Application Control), 
 - `pytest tests/` chạy trên cùng database.
 - `tools/check_khung.py --de MG` mức tĩnh: **14 ĐẠT, 0 KHÔNG ĐẠT**.
 
-Việc còn phải làm trên máy thật: dựng lại database, chạy `uv run dbt build --selector cap_mg_staging` và `uv run pytest` (xem mục cuối).
+Các phép thử âm trong bảng KT-07 đánh dấu "môi trường thay thế" chưa chạy lại trên máy thật.
 
 ## Bảng tổng hợp
 
@@ -48,6 +55,9 @@ Việc còn phải làm trên máy thật: dựng lại database, chạy `uv run
 | KT-16 | Thấp | `event_date` phụ thuộc TimeZone của phiên | Đã sửa |
 | KT-17 | Thấp | Chưa cài CONFLICT_IN_BATCH và khử dòng lặp cho bản chụp | Đã sửa |
 | KT-18 | Thấp | Cột thuộc tính hỏng làm loại cả dòng | Đã sửa |
+| KT-19 | Cao | Xung đột giữa hai lô cùng `ingested_ts` lọt qua staging (GT-STG-KEYTS đỏ) | Đã sửa, có phép thử âm |
+| KT-20 | Trung bình | Không test nào bắt khử trùng hỏng; phép thử âm KEYTS ghi sai | Đã bổ sung test, có phép thử âm |
+| KT-21 | Thấp | Cột có mẫu `null_and_count` không kiểm mẫu; giờ thiết bị sai bị thay âm thầm | Đã sửa, có test warn |
 
 **Số dòng staging trước và sau refactor** (cùng landing, 104 lô): không đổi ở cả 12 view. Như vậy refactor không làm đổi kết quả trên dữ liệu đề, và lý do loại khớp từng lỗi đã ghi ở D-KHAOSAT.
 
@@ -114,7 +124,7 @@ Việc còn phải làm trên máy thật: dựng lại database, chạy `uv run
 
 **Khắc phục.**
 - Bỏ `dv_window` khỏi mọi staging.
-- Khử trùng và phát hiện xung đột chỉ trong **một lô** (`partition by batch_id, khóa`), giữ dòng đầu theo `source_row_no` (macro `stg_batch_dup_cols`).
+- Khử trùng và phát hiện xung đột chỉ trong **một lô** (`partition by batch_id, khóa`), giữ dòng đầu theo `source_row_no` (macro `stg_batch_dup_cols`). *Đã nới thành một lần thấy (`partition by ingested_ts, khóa`) ở KT-19.*
 - Trùng giữa các lô để raw vault xử lý (hub/nhl chỉ chèn khóa chưa có, nên tự giữ lần thấy đầu).
 
 **Vì sao chọn.**
@@ -190,12 +200,15 @@ Việc còn phải làm trên máy thật: dựng lại database, chạy `uv run
 
 **Vấn đề.** Staging chỉ có `not_null`/`unique` và một GT-STG-RECON. Đề bắt buộc GT-STG-KEYTS, TC-NEN-HASH-TZ, GT-STG-PII cùng các test riêng của đề, mỗi test kèm phép thử âm (mục 2.6).
 
-**Khắc phục.** Bảng dưới liệt kê test, phép thử âm và kết quả trên môi trường kiểm chứng:
+**Khắc phục.** Bảng dưới liệt kê test, phép thử âm và kết quả. Dòng không ghi "máy thật" là kết quả trên môi trường thay thế:
 
 | Test | File | Phép thử âm | Kết quả |
 |---|---|---|---|
 | GT-STG-RECON | `finova-dbt/tests/staging/test_stg_reconciliation.sql` | Thêm `and source_row_no <> 1` vào `stg_flex__broker` | Đỏ 3 lô |
-| GT-STG-KEYTS | `test_stg_keyts.sql` | Bỏ nhánh CONFLICT_IN_BATCH và chèn dòng xung đột | Chưa chạy (dữ liệu đề không có xung đột; cần chèn dòng giả) |
+| GT-STG-KEYTS | `test_stg_keyts.sql` | DB thử: chèn lô `CAP-MG-9999` cùng `ingested_ts` với `CAP-MG-0002`, BRK001 khác email; gom xung đột theo `batch_id` | Đỏ 1 khóa (máy thật, KT-19) |
+| GT-STG-UNIQUE | `test_stg_dedup.sql` vế `DUP_KEPT_TWICE` | Xóa nhánh `_dup_rank > 1` ở `stg_finova_app__events` | Đỏ 12 khóa ở `CAP-MG-0060`; KEYTS, RECON vẫn xanh (máy thật, KT-20) |
+| GT-STG-UNIQUE | `test_stg_dedup.sql` vế `DUP_NOT_IDENTICAL` | DB thử: chèn BRK001 khác email vào cùng lô, xóa nhánh `_has_conflict` ở `stg_flex__broker` | Đỏ 1; KEYTS vẫn xanh (máy thật, KT-20) |
+| null_and_count (warn) | `test_stg_attr_nulled.sql` | DB thử: `GRPID = 'X1'`, `raw_event_ts = '20/04/2026 9h'` | Warn 2 ô (máy thật, KT-21) |
 | GT-STG-PII | `test_stg_pii.sql` | Bỏ che `mobile_masked` | Đỏ 72 dòng |
 | TC-NEN-HASH-TZ | `tests/staging/test_hash_tz.py` (pytest) | `dv_fmt_val` dùng `::text` cho timestamptz | Đỏ ở `nhl_broker_event_hd` của 2 view sự kiện |
 | TC-CAP-MG-EVENTTIME | `test_stg_events_event_time.sql` | Ngưỡng 10 ngày qua `--vars` | Đỏ 6 dòng |
@@ -336,6 +349,54 @@ Việc còn phải làm trên máy thật: dựng lại database, chạy `uv run
 
 **Vì sao chọn.** DEC-ELT-REJECT: raw vault giữ mọi dòng dựng được khóa. Loại cả dòng vì một thuộc tính hỏng sẽ làm mất phiên bản và gây "xóa giả" ở bản chụp đầy đủ (đề đã cảnh báo bẫy này ở CAP-KH).
 
+## KT-19 (Cao): Xung đột giữa hai lô cùng `ingested_ts` lọt qua staging
+
+**Vấn đề.** `stg_batch_dup_cols` gom theo `(batch_id, khóa)`. GT-STG-KEYTS lại xét `(khóa, ingested_ts)`.
+
+**Lỗi xảy ra thế nào.** `ingested_ts` lấy `commit_ts` của manifest, nên hai lô của cùng bảng có thể trùng `ingested_ts` (lô sửa gửi cùng giây với lô gốc). Mỗi lô tự sạch nên cả hai dòng đều vào view hợp lệ. Raw vault nhận hai phiên bản cùng thời điểm thấy và không biết bản nào thấy trước. Phép thử âm trên DB thử (lô `CAP-MG-9999` cùng `ingested_ts` với `CAP-MG-0002`, BRK001 khác email) làm GT-STG-KEYTS đỏ với code chưa sửa.
+
+**Khắc phục.** Gom theo `(ingested_ts, khóa)`, xếp hạng `order by batch_id, source_row_no`. Xung đột giữa hai lô cùng `ingested_ts` thành `CONFLICT_IN_BATCH` cho mọi dòng của khóa đó.
+
+**Vì sao chọn.**
+- Mọi dòng của một lô cùng `ingested_ts`, nên cách gom mới bao trọn cách cũ: dữ liệu đề không đổi số dòng ở cả 12 view.
+- Vẫn không phụ thuộc cửa sổ nạp (KT-03): view không lọc gì, chỉ đổi khóa gom.
+- Phương án "giữ bản `batch_id` lớn hơn" bị loại: `batch_id` là mã do nguồn đặt, không phải thứ tự thời gian, nên chọn theo nó là tùy tiện. Không xếp được thì loại cả hai, để D-DQ báo và nguồn gửi lại.
+
+**Bằng chứng.** DB thử: code mới loại cả 2 dòng (`CONFLICT_IN_BATCH`), KEYTS xanh; đổi lại `partition by batch_id` thì KEYTS đỏ 1 khóa. Database thật: số dòng 12 view không đổi.
+
+## KT-20 (Trung bình): Không test nào bắt khử trùng hỏng; phép thử âm KEYTS ghi sai
+
+**Vấn đề.** GT-STG-KEYTS đếm `count(distinct hashdiff) > 1`; GT-STG-RECON chỉ kiểm tổng; không có test `unique`. Phép thử âm ghi trong `test_stg_keyts.sql` ("bỏ nhánh CONFLICT_IN_BATCH rồi chèn dòng xung đột thì đỏ") không đúng.
+
+**Lỗi xảy ra thế nào.** Chạy thật trên máy và DB thử:
+- Xóa nhánh `DUPLICATE_EVENT`: 12 sự kiện gửi hai lần trong `CAP-MG-0060` (cùng hashdiff) vào view hợp lệ. KEYTS và RECON vẫn xanh.
+- Chỉ xóa nhánh `CONFLICT_IN_BATCH`: dòng xung đột thứ hai rơi vào `DUPLICATE_ROW`, dòng đầu vào view hợp lệ. KEYTS vẫn xanh vì chỉ còn một hashdiff.
+
+**Khắc phục.** Test `finova-dbt/tests/staging/test_stg_dedup.sql`, hai vế, cùng cách gom `(ingested_ts, khóa)` với macro:
+- `DUP_KEPT_TWICE`: mỗi `(ingested_ts, khóa)` có tối đa một dòng hợp lệ.
+- `DUP_NOT_IDENTICAL`: dòng bị loại `DUPLICATE_ROW`/`DUPLICATE_EVENT` phải cùng hashdiff với dòng được giữ.
+
+Sửa lại mô tả phép thử âm ở đầu `test_stg_keyts.sql`.
+
+**Bằng chứng.** Xem bảng KT-07: xóa nhánh trùng thì `DUP_KEPT_TWICE` đỏ 12; xóa nhánh xung đột thì `DUP_NOT_IDENTICAL` đỏ 1.
+
+## KT-21 (Thấp): Cột có mẫu `null_and_count` không kiểm mẫu; giờ thiết bị sai bị thay âm thầm
+
+**Vấn đề.**
+- Hợp đồng khai mẫu và `on_invalid: null_and_count` cho `GRPID` (broker), `PARENTID`, `GRPLEVEL` (regrp), `outcome`, `duration_sec` (events). Staging chỉ trim và viết hoa, không kiểm mẫu.
+- `raw_event_ts` có gửi nhưng sai định dạng thì `event_ts` lùi về `server_ts` mà không có cờ.
+
+**Lỗi xảy ra thế nào.** `GRPID = 'X1'` vẫn sinh `regrp_hk` và link môi giới - nhóm trỏ tới đơn vị không có trong hub. `duration_sec = '-5'` hay `'1,500'` vẫn được nhận thành số. Giờ thiết bị sai không phân biệt được với giờ thiết bị không gửi, nên D-DQ không đếm được. Dữ liệu đề hiện không có ca nào.
+
+**Khắc phục.**
+- Macro `stg_code_fmt(col, pattern)` (sai mẫu thì NULL) và `stg_parse_uint(col, pattern)` (số nguyên không dấu) trong `stg_parsers.sql`, áp cho 5 cột trên với đúng mẫu của hợp đồng.
+- Cột `is_device_ts_invalid` ở `stg_finova_app__events` (và `__rejected`), có `not_null` trong `schema.yml`.
+- Test warn `test_stg_attr_nulled.sql`: mỗi ô có giá trị ở landing nhưng NULL ở view hợp lệ là một dòng, cho 10 cột thuộc tính (gồm cả các cột ngày). Đây là phần "count" của `null_and_count`, làm nguồn cho D-DQ.
+
+**Vì sao chọn.** Giữ dòng, để NULL đúng như hợp đồng (KT-18, DEC-ELT-REJECT). Một test đếm chung dựa trên so landing với staging thay cho từng test `not_null` riêng, vì `PARENTID`, `outcome`, `duration_sec` được phép NULL nên `not_null` không dùng được.
+
+**Bằng chứng.** DB thử: `GRPID = 'X1'` và `raw_event_ts = '20/04/2026 9h'` cho `test_stg_attr_nulled` warn 2, `not_null_stg_flex__broker_grpid` warn 1, sự kiện có `is_device_ts_invalid = true` và `event_ts = server_ts`. Database thật: test xanh, số dòng không đổi.
+
 ---
 
 ## Ghi nhận, không sửa
@@ -344,13 +405,14 @@ Việc còn phải làm trên máy thật: dựng lại database, chạy `uv run
 |---|---|
 | Loader đổi ô rỗng `''` thành NULL ở landing | CSV không phân biệt được rỗng với NULL. Staging xử lý cả hai như nhau (`nullif(btrim(x), '')`), nên không mất thông tin |
 | JSON Lines lưu từng khóa thành cột text bằng `str()` | Đúng với dữ liệu đề (chỉ có chuỗi và số nguyên). Nếu nguồn có boolean hoặc số thực, `str()` sẽ ra `True`, `12.0`; khi đó nên lưu thêm nguyên dòng vào một cột jsonb |
-| Phép thử âm GT-STG-KEYTS chưa chạy | Dữ liệu đề không có khóa trùng trong một lô, nên cần chèn tạm một dòng xung đột vào landing của DB thử |
+| Ô Excel dạng số hoặc ngày | Loader ghi ô bằng `str()`. File đề chỉ có cột C (số khách mới) là số nguyên, các cột khác là chuỗi (`'11,5'`), nên đúng. Nếu người nhập để ô dạng ngày, `str(datetime)` ra `'2026-04-20 00:00:00'`, `stg_parse_date` không nhận nên dòng bị loại nhầm `UNAPPROVED_ROW`; ô số thực `1.234` bị đọc thành 1234 theo quy tắc dấu phẩy thập phân. Sửa ở loader, commit riêng (việc còn mở 4) |
 
 ## Việc còn mở
 
-1. **Dựng lại database thật** (bắt buộc). Landing hiện có dữ liệu KPI NULL, 7 cột tiếng Việt thừa, bảng `ref_*` cũ, và `batch_log` không có `arrival_seq`. `batch_log` chỉ thêm dòng nên không sửa tại chỗ được. Trình tự: drop database → `setup/bootstrap.sql` → `setup/ctrl.sql` → `uv run python -m loader.load` → `uv run dbt build --selector cap_mg_staging` → `uv run pytest`.
-2. **Chạy `uv run dbt` thật**, để xác nhận phần môi trường kiểm chứng không mô phỏng được (cách dbt dựng seed, cấu hình `severity` của test singular).
-3. Raw vault phải gọi `{{ dv_window() }}` khi đọc staging (KT-03). Business Vault phải tách người theo `[join_date, leave_date]` (KT-02) và tính `is_active` (KT-15).
-4. D-DQ: bảng `dq_*` và `docs/chatluong.md` dựng từ các view `__rejected`, cùng cách đếm với GT-STG-RECON.
-5. D-TEST: chép bảng phép thử âm ở KT-07 vào `docs/matran_test.md` sau khi chạy lại trên máy thật.
-6. Quy trình: làm trên nhánh `feat/cap-mg-phucnd` và commit theo từng bước (lịch sử git là bằng chứng chấm). README (D-RUNBOOK) cập nhật trình tự ở mục 1.
+Đã xong ngày 02/11/2026: dựng lại database thật và chạy `uv run dbt`, `uv run pytest` trên máy thật (xem "Môi trường kiểm chứng"); chuyển sang nhánh `feat/cap-mg-phucnd`; README (D-RUNBOOK); `docs/matran_test.md` (D-TEST, phần staging).
+
+1. Raw vault phải gọi `{{ dv_window() }}` khi đọc staging (KT-03), và tự khử trùng giữa các lô: hub chỉ chèn khóa chưa có, satellite chỉ chèn khi hashdiff khác phiên bản mới nhất, so với bảng vault chứ không chỉ trong cửa sổ. Khóa vắng khỏi bản chụp mới thì thêm phiên bản `is_deleted` (DEC-MG-D4).
+2. Business Vault phải tách người theo `[join_date, leave_date]` (KT-02), tính `is_active` (KT-15), chọn phân công khi chồng lấn (DEC-CAP-MG-OVERLAP; 12 cặp chồng lấn trong cùng lô ở dữ liệu đề) và bắt bẫy `FRDATE < JOINDATE` của BRK017 bằng phép ghép theo hiệu lực (môi giới và phân công nằm ở các lô khác nhau nên staging không ghép được).
+3. D-DQ: bảng `dq_*` và `docs/chatluong.md` dựng từ các view `__rejected` và `test_stg_attr_nulled`, cùng cách đếm với GT-STG-RECON.
+4. Loader: chuẩn hóa ô Excel dạng ngày (`YYYY-MM-DD`) và số (định dạng cố định) trước khi ghi landing (xem "Ghi nhận, không sửa").
+5. Chạy lại trên máy thật các phép thử âm KT-07 còn ghi kết quả của môi trường thay thế.
