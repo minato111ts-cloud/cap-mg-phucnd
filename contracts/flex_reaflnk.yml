@@ -56,6 +56,6 @@ columns:
     on_invalid: null_and_count
 allcode: {}
 pii_columns: []
-reject_rules: [KEY_NULL, KEY_FORMAT, INVALID_DATE_RANGE, CONFLICT_IN_BATCH]
+reject_rules: [KEY_NULL, KEY_FORMAT, INVALID_DATE, INVALID_DATE_RANGE, ALLCODE_UNKNOWN, CONFLICT_IN_BATCH, DUPLICATE_ROW]   # staging: macros/staging/stg_flex__reaflnk.sql
 schema_drift: {new_column: add_nullable_and_log}
 

@@ -29,9 +29,10 @@ columns:
     nullable: false
     normalize: [trim]
     formats: ["^[0-9]+(\\.[0-9]+)?$"]
+    decimal_sep: "."   # file hệ thống: dấu chấm thập phân, dấu phẩy phân cách nghìn
     on_invalid: reject
 allcode: {}
 pii_columns: []
-reject_rules: [KEY_NULL, KEY_FORMAT, INVALID_NUMERIC]
+reject_rules: [KEY_NULL, INVALID_DATE, KEY_FORMAT, INVALID_NUMERIC, CONFLICT_IN_BATCH, DUPLICATE_ROW]   # staging: macros/staging/stg_ref__nav.sql
 schema_drift: {new_column: add_nullable_and_log}
 

@@ -3,8 +3,8 @@ table: flex_broker
 table_kind: entity_snapshot
 capture_mode: full_snapshot
 format: csv
-business_key: [BROKERID, JOINDATE]
-grain: "Một nhân sự môi giới tại một bản chụp cuối ngày (phân biệt tái sử dụng mã qua JOINDATE theo DEC-CAP-MG-BROKERKEY)"
+business_key: [BROKERID]   # DEC-CAP-MG-BROKERKEY PA A: mã nguồn làm khóa hub; người tách bằng satellite (JOINDATE)
+grain: "Một mã môi giới và người đang mang mã đó tại một bản chụp cuối ngày; mã cấp lại cho người mới thì JOINDATE đổi (DEC-CAP-MG-BROKERKEY)"
 event_ts:
   expr: "commit_ts của lô trong manifest.csv"
   fallback: []
@@ -29,7 +29,7 @@ columns:
     nullable: false
     normalize: [trim, upper]
     formats: ["^G[0-9]+$"]
-    on_invalid: reject
+    on_invalid: null_and_count   # thiếu nhóm chỉ mất link môi giới - nhóm, hub vẫn dựng được
   - name: STATUS
     type: text
     nullable: false
@@ -53,7 +53,7 @@ columns:
     nullable: false
     normalize: [trim]
     formats: ["DD/MM/YYYY", "YYYY-MM-DD"]
-    on_invalid: reject
+    on_invalid: null_and_count   # thuộc tính, không phải khóa: thiếu thì CANHBAO, không loại dòng
   - name: LEAVEDATE
     type: date
     nullable: true
@@ -62,6 +62,6 @@ columns:
     on_invalid: null_and_count
 allcode: {}
 pii_columns: [FULLNAME, EMAIL, MOBILE]
-reject_rules: [KEY_NULL, KEY_FORMAT, ALLCODE_UNKNOWN, CONFLICT_IN_BATCH]
+reject_rules: [KEY_NULL, KEY_FORMAT, ALLCODE_UNKNOWN, CONFLICT_IN_BATCH, DUPLICATE_ROW]   # staging: macros/staging/stg_flex__broker.sql
 schema_drift: {new_column: add_nullable_and_log}
 

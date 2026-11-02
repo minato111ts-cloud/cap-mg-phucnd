@@ -33,6 +33,7 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONTRACTS_DIR = REPO_ROOT / "contracts"
+DEFAULT_THRESHOLDS_PATH = REPO_ROOT / "customers" / "ctcka" / "thresholds.yaml"
 DEFAULT_KIT_MG_DIR = (
     REPO_ROOT.parent
     / "finova_capstone_hocvien_v1.5"
@@ -55,7 +56,7 @@ def normalize_token(s: str | None) -> str:
 def get_db_connection():
     """Tạo kết nối PostgreSQL và chuyển sang role finova_loader theo quy ước ma trận quyền."""
     host = os.environ.get("CAP_PGHOST", "127.0.0.1")
-    port = int(os.environ.get("CAP_PGPORT", "5432"))
+    port = int(os.environ.get("CAP_PGPORT", "5436"))  # REQ-ENV-07: container finova-pg16-dev nghe 127.0.0.1:5436
     dbname = os.environ["CAP_DBNAME"]
     user = os.environ.get("CAP_PGUSER", "postgres")
     conn = psycopg2.connect(
@@ -120,58 +121,49 @@ def parse_iso_timestamptz(val: str | None) -> datetime | None:
         return None
 
 
+def load_thresholds(path: Path = DEFAULT_THRESHOLDS_PATH) -> dict[str, Any]:
+    """Đọc ngưỡng nghiệp vụ của tenant (INV-M6); không ghi cứng ngưỡng trong code."""
+    with path.open(encoding="utf-8") as fp:
+        return yaml.safe_load(fp) or {}
+
+
 def resolve_row_event_ts(
     contract: dict[str, Any],
     row_dict: dict[str, str | None],
     commit_ts_dt: datetime | None,
+    thresholds: dict[str, Any] | None = None,
 ) -> datetime | None:
     """
-    Xác định event_ts của dòng hoàn toàn dựa trên cấu hình Hợp đồng nguồn:
-      1. Nếu hợp đồng khai báo event_ts theo mốc lô (commit_ts) -> trả về commit_ts_dt.
-      2. Nếu hợp đồng khai báo event_ts theo cột của dòng dữ liệu -> kiểm tra biểu thức/cột
-         chính và danh sách fallback được khai báo trong hợp đồng.
-      3. Nếu không tính được timestamptz hợp lệ -> trả về None (vi phạm INV-T1 -> load_reject).
+    Xác định event_ts của dòng theo trường máy đọc của Hợp đồng nguồn (mục event_ts):
+      1. Có `column`: lấy cột đó; nếu có `future_guard` mà giá trị đi trước cột so sánh quá ngưỡng
+         thì dùng cột so sánh (DQ-TUONGLAI); cột chính không parse được thì thử `fallback_columns`.
+      2. Không có `column` và expr nói commit_ts: event_ts là commit_ts của lô (bản chụp).
+      3. Không tính được timestamptz hợp lệ -> None (INV-T1 -> ctrl.load_reject).
     """
     event_cfg = contract.get("event_ts", {})
-    expr_text = str(event_cfg.get("expr", "")).lower()
+    column = event_cfg.get("column")
 
-    # Trường hợp 1: Hợp đồng quy định lấy theo commit_ts của lô
-    if "commit_ts" in expr_text:
-        return commit_ts_dt
+    if column is None:
+        if "commit_ts" in str(event_cfg.get("expr", "")).lower():
+            return commit_ts_dt
+        raise ValueError(
+            f"Hợp đồng {contract.get('table')}: event_ts phải khai `column` hoặc lấy theo commit_ts"
+        )
 
-    # Trường hợp 2: Hợp đồng quy định lấy theo các cột thời gian của bản ghi
-    col_positions: list[tuple[int, str]] = []
-    for col_info in contract.get("columns", []):
-        cname = col_info["name"]
-        ctype = str(col_info.get("type", "")).lower()
-        if ctype in ("timestamptz", "timestamp", "date", "datetime"):
-            pos = expr_text.find(cname.lower())
-            if pos != -1:
-                col_positions.append((pos, cname))
-    col_positions.sort(key=lambda x: x[0])
-    candidate_cols: list[str] = [c for _, c in col_positions]
+    primary = parse_iso_timestamptz(row_dict.get(column))
+    if primary is not None:
+        guard = event_cfg.get("future_guard")
+        if guard:
+            reference = parse_iso_timestamptz(row_dict.get(guard["compare_to"]))
+            tolerance = (thresholds or {})[guard["tolerance_minutes_key"]]
+            if reference is not None and primary > reference + timedelta(minutes=float(tolerance)):
+                return reference
+        return primary
 
-    # Bổ sung các cột trong fallback
-    for fb in event_cfg.get("fallback", []):
-        fb_str = str(fb).lower()
-        fb_positions: list[tuple[int, str]] = []
-        for col_info in contract.get("columns", []):
-            cname = col_info["name"]
-            pos = fb_str.find(cname.lower())
-            if pos != -1 and cname not in candidate_cols:
-                fb_positions.append((pos, cname))
-        fb_positions.sort(key=lambda x: x[0])
-        for _, c in fb_positions:
-            if c not in candidate_cols:
-                candidate_cols.append(c)
-
-    # Thử parse giá trị từ các cột ứng viên theo thứ tự ưu tiên
-    for cname in candidate_cols:
-        raw_val = row_dict.get(cname)
-        parsed = parse_iso_timestamptz(raw_val)
+    for fb_col in event_cfg.get("fallback_columns", []):
+        parsed = parse_iso_timestamptz(row_dict.get(fb_col))
         if parsed is not None:
             return parsed
-
     return None
 
 
@@ -293,13 +285,13 @@ def read_file_records(
 def ensure_landing_infrastructure(
     conn,
     contracts: dict[str, dict[str, Any]],
-    ref_dir: Path | None = None,
 ) -> None:
     """
     Khởi tạo hạ tầng schema landing & ctrl theo đúng hợp đồng:
       - Đăng ký hệ thống nguồn giả lập thời gian nạp trong ctrl.source_system (INV-T6).
       - Tạo các bảng landing.<source_table> chứa đủ 5 cột hệ thống NOT NULL.
-      - Nạp các bảng tham chiếu (nếu có thư mục ref/) vào landing.ref_*.
+    Danh mục ref/ (event_type, org_roles, calendar) là dbt seed, không vào landing:
+    landing chỉ chứa lô theo manifest, chỉ thêm dòng và luôn có 5 cột kỹ thuật (INV-T1).
     """
     with conn.cursor() as cur:
         cur.execute("SET ROLE finova_loader;")
@@ -345,32 +337,55 @@ def ensure_landing_infrastructure(
             )
             cur.execute(create_stmt)
 
-        # 3. Đồng bộ các danh mục tham chiếu trong ref/ vào landing.ref_*
-        if ref_dir and ref_dir.exists():
-            for ref_csv in sorted(ref_dir.glob("*.csv")):
-                ref_tbl = f"ref_{ref_csv.stem.lower()}"
-                with ref_csv.open(encoding="utf-8-sig", newline="") as fp:
-                    reader = list(csv.reader(fp))
-                if not reader:
-                    continue
-                headers = [h.lstrip("\ufeff").strip().lower() for h in reader[0]]
-                col_defs = [sql.SQL("{} text").format(sql.Identifier(h)) for h in headers]
-                cur.execute(
-                    sql.SQL("CREATE TABLE IF NOT EXISTS landing.{} ({});").format(
-                        sql.Identifier(ref_tbl),
-                        sql.SQL(", ").join(col_defs),
-                    )
-                )
-                cur.execute(sql.SQL("TRUNCATE TABLE landing.{};").format(sql.Identifier(ref_tbl)))
-                data_rows = [r for r in reader[1:] if any(x.strip() for x in r)]
-                if data_rows:
-                    insert_ref = sql.SQL("INSERT INTO landing.{} ({}) VALUES %s").format(
-                        sql.Identifier(ref_tbl),
-                        sql.SQL(", ").join(sql.Identifier(h) for h in headers),
-                    )
-                    execute_values(cur, insert_ref.as_string(conn), data_rows)
-
     conn.commit()
+
+
+def _log_batch(
+    cur,
+    manifest_row: dict[str, str],
+    status: str,
+    reason_code: str | None,
+    *,
+    ingested_ts: datetime | None = None,
+    row_count_read: int | None = None,
+    rows_loaded: int = 0,
+    rows_rejected: int = 0,
+    content_hash: str | None = None,
+    flag_codes: list[str] | None = None,
+    detail: dict[str, Any] | None = None,
+) -> int:
+    """Ghi một dòng ctrl.batch_log (chỉ thêm dòng). arrival_seq vào detail để biết dòng manifest nào đã xử lý."""
+    detail = dict(detail or {})
+    if manifest_row.get("arrival_seq"):
+        detail["arrival_seq"] = int(manifest_row["arrival_seq"])
+    cur.execute(
+        """
+        INSERT INTO ctrl.batch_log (
+            batch_id, source_table, business_date, ingested_ts,
+            status, reason_code, row_count_declared, row_count_read,
+            rows_loaded, rows_rejected, sha256_declared, content_hash,
+            flag_codes, detail
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING log_id;
+        """,
+        (
+            manifest_row["batch_id"].strip(),
+            manifest_row["source_table"].strip(),
+            manifest_row.get("business_date", "").strip() or None,
+            ingested_ts,
+            status,
+            reason_code,
+            int(manifest_row["row_count"]),
+            row_count_read,
+            rows_loaded,
+            rows_rejected,
+            manifest_row["sha256"].strip().lower(),
+            content_hash,
+            flag_codes or [],
+            Json(detail),
+        ),
+    )
+    return cur.fetchone()[0]
 
 
 def process_single_batch(
@@ -380,12 +395,13 @@ def process_single_batch(
     contracts: dict[str, dict[str, Any]],
     excel_header_rows: int = 2,
     commit: bool = True,
+    thresholds: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Xử lý nạp một lô đơn lẻ theo quy trình chuẩn của Loader Finova:
-      1. Kiểm tra Idempotency (bỏ qua nếu batch_id đã xử lý thành công).
-      2. Kiểm tra tính toàn vẹn vật lý (sha256, row_count; lệch -> REJECTED_BATCH).
-      3. Phát hiện gửi lặp nội dung (DUP_CONTENT -> SKIPPED_DUP).
+      1. batch_id đã LOADED -> SKIPPED_DUP / ALREADY_LOADED (vẫn ghi sổ, không thêm dòng landing).
+      2. Kiểm tra tính toàn vẹn vật lý (file, sha256, row_count; lệch -> REJECTED_BATCH).
+      3. Phát hiện gửi lặp nội dung (SKIPPED_DUP / DUP_CONTENT).
       4. Phát hiện trôi cấu trúc (schema_drift -> tự động thêm cột text NULL và ghi log).
       5. Tính toán 5 cột hệ thống NOT NULL; dòng mất event_ts -> ghi ctrl.load_reject.
       6. Ghi dữ liệu vào landing và ghi sổ kiểm toán vào ctrl.batch_log.
@@ -393,88 +409,52 @@ def process_single_batch(
     batch_id = manifest_row["batch_id"].strip()
     source_table = manifest_row["source_table"].strip()
     rel_path = manifest_row["file_path"].strip()
-    business_date = manifest_row.get("business_date", "").strip() or None
     commit_ts_str = manifest_row.get("commit_ts", "").strip()
     row_count_declared = int(manifest_row["row_count"])
     sha256_declared = manifest_row["sha256"].strip().lower()
 
     if source_table not in contracts:
         raise ValueError(f"Không tìm thấy Hợp đồng nguồn cho bảng: {source_table}")
+    if thresholds is None:
+        thresholds = load_thresholds()
 
     contract = contracts[source_table]
     source_id = contract["source_id"]
     file_path = base_dir / rel_path
 
+    def finish(status: str, reason_code: str | None, rows_loaded: int = 0, rows_rejected: int = 0) -> dict[str, Any]:
+        if commit:
+            conn.commit()
+        return {
+            "batch_id": batch_id,
+            "status": status,
+            "reason_code": reason_code,
+            "rows_loaded": rows_loaded,
+            "rows_rejected": rows_rejected,
+        }
+
     with conn.cursor() as cur:
         cur.execute("SET ROLE finova_loader;")
 
-        # 1. Kiểm tra Idempotency trên batch_id
+        # 1. Nạp lại cùng batch_id: không sinh dòng landing, nhưng mọi lần xử lý đều vào sổ (Bảng 18)
         cur.execute(
-            """
-            SELECT log_id, status, reason_code, rows_loaded, rows_rejected
-            FROM ctrl.batch_log
-            WHERE batch_id = %s AND status IN ('LOADED', 'SKIPPED_DUP')
-            ORDER BY log_id DESC
-            LIMIT 1;
-            """,
+            "SELECT log_id FROM ctrl.batch_log WHERE batch_id = %s AND status = 'LOADED';",
             (batch_id,),
         )
-        existing = cur.fetchone()
-        if existing:
-            return {
-                "batch_id": batch_id,
-                "status": "ALREADY_PROCESSED",
-                "previous_status": existing[1],
-                "reason_code": existing[2],
-                "rows_loaded": existing[3],
-                "rows_rejected": existing[4],
-            }
+        loaded = cur.fetchone()
+        if loaded:
+            _log_batch(cur, manifest_row, "SKIPPED_DUP", "ALREADY_LOADED", detail={"loaded_log_id": loaded[0]})
+            return finish("SKIPPED_DUP", "ALREADY_LOADED")
 
         # 2. Kiểm tra tồn tại file và Checksum SHA-256
         if not file_path.exists():
-            cur.execute(
-                """
-                INSERT INTO ctrl.batch_log (
-                    batch_id, source_table, business_date, ingested_ts,
-                    status, reason_code, row_count_declared, row_count_read,
-                    rows_loaded, rows_rejected, sha256_declared, content_hash
-                ) VALUES (%s, %s, %s, NULL, 'REJECTED_BATCH', 'FILE_NOT_FOUND', %s, 0, 0, 0, %s, NULL)
-                RETURNING log_id;
-                """,
-                (batch_id, source_table, business_date, row_count_declared, sha256_declared),
-            )
-            if commit:
-                conn.commit()
-            return {
-                "batch_id": batch_id,
-                "status": "REJECTED_BATCH",
-                "reason_code": "FILE_NOT_FOUND",
-                "rows_loaded": 0,
-                "rows_rejected": 0,
-            }
+            _log_batch(cur, manifest_row, "REJECTED_BATCH", "FILE_MISSING", row_count_read=0)
+            return finish("REJECTED_BATCH", "FILE_MISSING")
 
         content_hash = compute_file_sha256(file_path)
         if content_hash != sha256_declared:
-            cur.execute(
-                """
-                INSERT INTO ctrl.batch_log (
-                    batch_id, source_table, business_date, ingested_ts,
-                    status, reason_code, row_count_declared, row_count_read,
-                    rows_loaded, rows_rejected, sha256_declared, content_hash
-                ) VALUES (%s, %s, %s, NULL, 'REJECTED_BATCH', 'SHA256_MISMATCH', %s, NULL, 0, 0, %s, %s)
-                RETURNING log_id;
-                """,
-                (batch_id, source_table, business_date, row_count_declared, sha256_declared, content_hash),
-            )
-            if commit:
-                conn.commit()
-            return {
-                "batch_id": batch_id,
-                "status": "REJECTED_BATCH",
-                "reason_code": "SHA256_MISMATCH",
-                "rows_loaded": 0,
-                "rows_rejected": 0,
-            }
+            _log_batch(cur, manifest_row, "REJECTED_BATCH", "SHA256_MISMATCH", content_hash=content_hash)
+            return finish("REJECTED_BATCH", "SHA256_MISMATCH")
 
         # 3. Đọc dữ liệu và kiểm tra Số lượng dòng khai báo
         actual_headers, parsed_rows = read_file_records(
@@ -483,34 +463,11 @@ def process_single_batch(
         row_count_read = len(parsed_rows)
 
         if row_count_read != row_count_declared:
-            cur.execute(
-                """
-                INSERT INTO ctrl.batch_log (
-                    batch_id, source_table, business_date, ingested_ts,
-                    status, reason_code, row_count_declared, row_count_read,
-                    rows_loaded, rows_rejected, sha256_declared, content_hash
-                ) VALUES (%s, %s, %s, NULL, 'REJECTED_BATCH', 'ROWCOUNT_MISMATCH', %s, %s, 0, 0, %s, %s)
-                RETURNING log_id;
-                """,
-                (
-                    batch_id,
-                    source_table,
-                    business_date,
-                    row_count_declared,
-                    row_count_read,
-                    sha256_declared,
-                    content_hash,
-                ),
+            _log_batch(
+                cur, manifest_row, "REJECTED_BATCH", "ROWCOUNT_MISMATCH",
+                row_count_read=row_count_read, content_hash=content_hash,
             )
-            if commit:
-                conn.commit()
-            return {
-                "batch_id": batch_id,
-                "status": "REJECTED_BATCH",
-                "reason_code": "ROWCOUNT_MISMATCH",
-                "rows_loaded": 0,
-                "rows_rejected": 0,
-            }
+            return finish("REJECTED_BATCH", "ROWCOUNT_MISMATCH")
 
         # 4. Kiểm tra gửi lặp nội dung byte-for-byte (TH-GUILAI / DUP_CONTENT)
         cur.execute(
@@ -525,38 +482,12 @@ def process_single_batch(
         )
         dup_of = cur.fetchone()
         if dup_of:
-            cur.execute(
-                """
-                INSERT INTO ctrl.batch_log (
-                    batch_id, source_table, business_date, ingested_ts,
-                    status, reason_code, row_count_declared, row_count_read,
-                    rows_loaded, rows_rejected, sha256_declared, content_hash, detail
-                ) VALUES (
-                    %s, %s, %s, NULL, 'SKIPPED_DUP', 'DUP_CONTENT', %s, %s,
-                    0, 0, %s, %s, %s
-                )
-                RETURNING log_id;
-                """,
-                (
-                    batch_id,
-                    source_table,
-                    business_date,
-                    row_count_declared,
-                    row_count_read,
-                    sha256_declared,
-                    content_hash,
-                    Json({"duplicate_of_batch_id": dup_of[0]}),
-                ),
+            _log_batch(
+                cur, manifest_row, "SKIPPED_DUP", "DUP_CONTENT",
+                row_count_read=row_count_read, content_hash=content_hash,
+                detail={"duplicate_of_batch_id": dup_of[0]},
             )
-            if commit:
-                conn.commit()
-            return {
-                "batch_id": batch_id,
-                "status": "SKIPPED_DUP",
-                "reason_code": "DUP_CONTENT",
-                "rows_loaded": 0,
-                "rows_rejected": 0,
-            }
+            return finish("SKIPPED_DUP", "DUP_CONTENT")
 
         # 5. Phát hiện Trôi cấu trúc (Schema Drift)
         contract_cols_norm = {normalize_token(c["name"]): c["name"] for c in contract.get("columns", [])}
@@ -572,6 +503,14 @@ def process_single_batch(
                         sql.Identifier(h.lower()),
                     )
                 )
+
+        # Cột của hợp đồng không tìm thấy trong tiêu đề file (ví dụ tiêu đề Excel chưa khai aliases):
+        # landing vẫn nạp nhưng cột đó NULL toàn bộ, nên gắn cờ để lộ ra ở ctrl.batch_log
+        actual_headers_norm = {normalize_token(h) for h in actual_headers}
+        missing_contract_cols = [
+            c["name"] for c in contract.get("columns", [])
+            if normalize_token(c["name"]) not in actual_headers_norm
+        ]
 
         # 6. Tính toán các cột hệ thống và phân tách dòng lỗi event_ts (INV-T1)
         ingested_ts_dt = parse_iso_timestamptz(commit_ts_str)
@@ -590,7 +529,7 @@ def process_single_batch(
             row_no: int = item["_row_no"]
             row_dict: dict[str, str | None] = item["data"]
 
-            row_event_ts = resolve_row_event_ts(contract, row_dict, ingested_ts_dt)
+            row_event_ts = resolve_row_event_ts(contract, row_dict, ingested_ts_dt, thresholds)
             if row_event_ts is None:
                 load_reject_records.append(
                     (
@@ -648,40 +587,20 @@ def process_single_batch(
         rows_loaded = len(valid_rows_to_insert)
         rows_rejected = len(load_reject_records)
         flag_codes: list[str] = []
+        batch_detail: dict[str, Any] = {}
         if new_cols_detected:
             flag_codes.append("SCHEMA_DRIFT")
+            batch_detail["new_columns"] = [c[0] for c in new_cols_detected]
+        if missing_contract_cols:
+            flag_codes.append("CONTRACT_COLUMN_MISSING")
+            batch_detail["missing_columns"] = missing_contract_cols
 
-        cur.execute(
-            """
-            INSERT INTO ctrl.batch_log (
-                batch_id, source_table, business_date, ingested_ts,
-                status, reason_code, row_count_declared, row_count_read,
-                rows_loaded, rows_rejected, sha256_declared, content_hash,
-                flag_codes, detail
-            ) VALUES (
-                %s, %s, %s, %s,
-                'LOADED', NULL, %s, %s,
-                %s, %s, %s, %s,
-                %s, %s
-            )
-            RETURNING log_id;
-            """,
-            (
-                batch_id,
-                source_table,
-                business_date,
-                ingested_ts_dt,
-                row_count_declared,
-                row_count_read,
-                rows_loaded,
-                rows_rejected,
-                sha256_declared,
-                content_hash,
-                flag_codes,
-                Json({"new_columns": [c[0] for c in new_cols_detected]} if new_cols_detected else {}),
-            ),
+        log_id = _log_batch(
+            cur, manifest_row, "LOADED", None,
+            ingested_ts=ingested_ts_dt, row_count_read=row_count_read,
+            rows_loaded=rows_loaded, rows_rejected=rows_rejected,
+            content_hash=content_hash, flag_codes=flag_codes, detail=batch_detail,
         )
-        log_id = cur.fetchone()[0]
 
         # 9. Ghi dòng bị loại vào ctrl.load_reject
         for r_no, r_code, r_detail in load_reject_records:
@@ -706,15 +625,7 @@ def process_single_batch(
                 (log_id, source_table, col_name, ordinal_pos),
             )
 
-    if commit:
-        conn.commit()
-    return {
-        "batch_id": batch_id,
-        "status": "LOADED",
-        "reason_code": None,
-        "rows_loaded": rows_loaded,
-        "rows_rejected": rows_rejected,
-    }
+    return finish("LOADED", None, rows_loaded, rows_rejected)
 
 
 def load_manifest_batches(
@@ -726,12 +637,15 @@ def load_manifest_batches(
 ) -> list[dict[str, Any]]:
     """
     Nạp các lô từ manifest.csv theo thứ tự arrival_seq:
+      - Chỉ xử lý dòng manifest chưa có trong sổ (theo arrival_seq), nên runner gọi mỗi ngày
+        không ghi lặp sổ cho các lô đã xử lý; một lô gửi lại (dòng manifest mới cùng batch_id)
+        vẫn được xử lý và ghi ALREADY_LOADED hoặc DUP_CONTENT.
       - Hỗ trợ lọc theo cutoff_ts để Runner mô phỏng chạy pipeline theo ngày.
       - Hỗ trợ lọc theo batch_id_filter.
     """
     contracts = load_contracts(contracts_dir)
+    thresholds = load_thresholds()
     manifest_path = base_dir / "inbound" / "manifest.csv"
-    ref_dir = base_dir / "ref"
 
     with manifest_path.open(encoding="utf-8-sig", newline="") as fp:
         manifest_rows = list(csv.DictReader(fp))
@@ -740,10 +654,18 @@ def load_manifest_batches(
 
     conn = get_db_connection()
     try:
-        ensure_landing_infrastructure(conn, contracts, ref_dir=ref_dir)
-        results: list[dict[str, Any]] = []
+        ensure_landing_infrastructure(conn, contracts)
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT (detail->>'arrival_seq')::int FROM ctrl.batch_log WHERE detail ? 'arrival_seq';"
+            )
+            processed_seqs = {r[0] for r in cur.fetchall()}
+        conn.commit()
 
+        results: list[dict[str, Any]] = []
         for row in manifest_rows:
+            if int(row["arrival_seq"]) in processed_seqs:
+                continue
             if batch_id_filter and row["batch_id"].strip() != batch_id_filter:
                 continue
             if cutoff_ts is not None:
@@ -751,14 +673,20 @@ def load_manifest_batches(
                 if avail_dt is None or avail_dt > cutoff_ts:
                     continue
 
-            res = process_single_batch(
-                conn=conn,
-                manifest_row=row,
-                base_dir=base_dir,
-                contracts=contracts,
-                excel_header_rows=excel_header_rows,
-                commit=True,
-            )
+            try:
+                res = process_single_batch(
+                    conn=conn,
+                    manifest_row=row,
+                    base_dir=base_dir,
+                    contracts=contracts,
+                    excel_header_rows=excel_header_rows,
+                    commit=True,
+                    thresholds=thresholds,
+                )
+            except Exception:
+                # Lỗi giữa chừng: hủy toàn bộ lô (kể cả ALTER TABLE của schema drift) rồi dừng
+                conn.rollback()
+                raise
             results.append(res)
         return results
     finally:

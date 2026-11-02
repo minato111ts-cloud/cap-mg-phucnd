@@ -6,9 +6,15 @@ format: jsonl
 business_key: [event_id]
 grain: "Một sự kiện tương tác của môi giới với tiểu khoản khách hàng trên ứng dụng Finova"
 event_ts:
-  expr: "case when event_ts::timestamptz > server_ts::timestamptz + interval '5 minutes' then server_ts::timestamptz else event_ts::timestamptz end"
-  fallback: ["server_ts::timestamptz"]
-  reason: "Lấy giờ thiết bị (event_ts) làm thời điểm diễn ra tương tác; nhưng khi đồng hồ thiết bị lệch về tương lai quá 5 phút so với server_ts (DQ-TUONGLAI) thì thay bằng server_ts và gắn cờ"
+  expr: "case when event_ts > server_ts + <event_future_tolerance_minutes> phút then server_ts else event_ts end"
+  fallback: ["server_ts"]
+  reason: "Lấy giờ thiết bị (event_ts) làm thời điểm diễn ra tương tác; nhưng khi đồng hồ thiết bị lệch về tương lai quá ngưỡng so với server_ts (DQ-TUONGLAI) thì thay bằng server_ts và gắn cờ. Ngưỡng ở customers/ctcka/thresholds.yaml (INV-M6)"
+  # Trường máy đọc: loader và staging cùng thực thi đúng một quy tắc này
+  column: event_ts
+  fallback_columns: [server_ts]
+  future_guard:
+    compare_to: server_ts
+    tolerance_minutes_key: event_future_tolerance_minutes
 ingested_ts_rule: commit_ts_simulated
 mutability: immutable
 columns:
@@ -62,5 +68,5 @@ columns:
     on_invalid: null_and_count
 allcode: { event_type: event_type.csv }
 pii_columns: []
-reject_rules: [KEY_NULL, KEY_FORMAT, ALLCODE_UNKNOWN, CONFLICT_IN_BATCH]
+reject_rules: [KEY_NULL, KEY_FORMAT, ALLCODE_UNKNOWN, INVALID_TIMESTAMP, CONFLICT_IN_BATCH, DUPLICATE_EVENT]   # staging: macros/staging/stg_finova_app__events.sql
 schema_drift: { new_column: add_nullable_and_log }

@@ -1,0 +1,6 @@
+# Ngưỡng nghiệp vụ của tenant (INV-M6): không ghi cứng trong code.
+# Loader đọc file này; dbt nhận cùng giá trị qua vars (finova-dbt/dbt_project.yml),
+# test tests/loader/test_thresholds_sync.py chặn hai nơi lệch nhau.
+
+# DQ-TUONGLAI: giờ thiết bị (event_ts) đi trước server_ts quá ngưỡng này thì dùng server_ts và gắn cờ
+event_future_tolerance_minutes: 5

@@ -29,13 +29,13 @@ columns:
     nullable: false
     normalize: [trim]
     formats: []
-    on_invalid: reject
+    on_invalid: null_and_count
   - name: GRPLEVEL
     type: numeric
     nullable: false
     normalize: [trim]
     formats: ["^[0-2]$"]
-    on_invalid: reject
+    on_invalid: null_and_count
   - name: EFFDATE
     type: date
     nullable: false
@@ -50,6 +50,6 @@ columns:
     on_invalid: reject
 allcode: {}
 pii_columns: []
-reject_rules: [KEY_NULL, KEY_FORMAT, CYCLE_DETECTED, CONFLICT_IN_BATCH]
+reject_rules: [KEY_NULL, KEY_FORMAT, ALLCODE_UNKNOWN, CYCLE_DETECTED, CONFLICT_IN_BATCH, DUPLICATE_ROW]   # staging: macros/staging/stg_flex__regrp.sql
 schema_drift: {new_column: add_nullable_and_log}
 

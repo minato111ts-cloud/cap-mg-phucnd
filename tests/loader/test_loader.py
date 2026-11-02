@@ -37,7 +37,10 @@ from loader.load import (
     ensure_landing_infrastructure,
     get_db_connection,
     load_contracts,
+    load_thresholds,
+    resolve_row_event_ts,
     process_single_batch,
+    read_file_records,
 )
 
 
@@ -51,7 +54,7 @@ def contracts() -> dict[str, dict[str, Any]]:
 def db_conn(contracts):
     """Fixture kết nối database, chạy trong transaction với rollback an toàn sau mỗi test."""
     conn = get_db_connection()
-    ensure_landing_infrastructure(conn, contracts, ref_dir=DEFAULT_KIT_MG_DIR / "ref")
+    ensure_landing_infrastructure(conn, contracts)
     yield conn
     conn.rollback()
     conn.close()
@@ -205,7 +208,7 @@ def test_tc_cap_ldz_01_spec_invariants_system_columns(contracts, db_conn, tmp_pa
 # ==============================================================================
 @pytest.mark.parametrize(
     "corrupt_scenario",
-    ["SHA256_MISMATCH", "ROWCOUNT_MISMATCH", "FILE_NOT_FOUND"],
+    ["SHA256_MISMATCH", "ROWCOUNT_MISMATCH", "FILE_MISSING"],
 )
 def test_tc_cap_ldz_02_negative_physical_integrity(
     corrupt_scenario: str, contracts, db_conn, tmp_path: Path
@@ -227,7 +230,7 @@ def test_tc_cap_ldz_02_negative_physical_integrity(
         manifest_row["sha256"] = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     elif corrupt_scenario == "ROWCOUNT_MISMATCH":
         manifest_row["row_count"] = "9999"
-    elif corrupt_scenario == "FILE_NOT_FOUND":
+    elif corrupt_scenario == "FILE_MISSING":
         manifest_row["file_path"] = "inbound/non_existent_folder/missing_file.csv"
 
     res = process_single_batch(db_conn, manifest_row, tmp_path, contracts, commit=False)
@@ -255,7 +258,8 @@ def test_tc_cap_ldz_02_negative_physical_integrity(
 def test_tc_cap_ldz_03_idempotency_and_duplicate_content(contracts, db_conn, tmp_path: Path):
     """
     TC-CAP-LDZ-03:
-      - Nạp lại cùng một batch_id đã thành công -> trả về ALREADY_PROCESSED, không ghi nhân đôi dòng.
+      - Nạp lại cùng một batch_id đã thành công -> SKIPPED_DUP / ALREADY_LOADED: vẫn ghi sổ (Bảng 18),
+        không ghi nhân đôi dòng landing.
       - Lô mới mang batch_id khác nhưng nội dung byte trùng lặp nguyên vẹn (TH-GUILAI)
         -> phát hiện qua content_hash -> SKIPPED_DUP với lý do DUP_CONTENT.
     """
@@ -271,7 +275,8 @@ def test_tc_cap_ldz_03_idempotency_and_duplicate_content(contracts, db_conn, tmp
 
     # Lần 2: Nạp lại cùng batch_id (Idempotent check)
     res1_replay = process_single_batch(db_conn, manifest_01, tmp_path, contracts, commit=False)
-    assert res1_replay["status"] == "ALREADY_PROCESSED"
+    assert res1_replay["status"] == "SKIPPED_DUP"
+    assert res1_replay["reason_code"] == "ALREADY_LOADED"
 
     # Lần 3: Lô mới khác batch_id nhưng cùng trỏ tới file có nội dung trùng lặp (TH-GUILAI)
     manifest_02 = dict(manifest_01, batch_id="TEST-IDEMP-02-DUP", business_date="2026-04-21")
@@ -284,6 +289,12 @@ def test_tc_cap_ldz_03_idempotency_and_duplicate_content(contracts, db_conn, tmp
             f"SELECT count(*) FROM landing.{sample_table} WHERE batch_id IN ('TEST-IDEMP-01', 'TEST-IDEMP-02-DUP');"
         )
         assert cur.fetchone()[0] == 1, "Số dòng trong landing phải là 1 (không được nhân đôi)"
+
+        cur.execute(
+            "SELECT status, reason_code FROM ctrl.batch_log WHERE batch_id = %s ORDER BY log_id;",
+            (batch_01,),
+        )
+        assert cur.fetchall() == [("LOADED", None), ("SKIPPED_DUP", "ALREADY_LOADED")]
 
 
 # ==============================================================================
@@ -541,3 +552,75 @@ def test_tc_cap_ldz_07_contract_driven_mock_contract(db_conn, tmp_path: Path):
         assert row[2] == 3
         assert row[3] == "100"
         assert row[4] == "300"
+
+
+# ==============================================================================
+# TC-CAP-MG-EXCEL (phần loader): đọc đúng file chỉ tiêu thật của gói đề
+# ==============================================================================
+KPI_REAL_FILES = sorted((DEFAULT_KIT_MG_DIR / "inbound" / "manual").glob("kpi_targets_*.xlsx"))
+
+
+@pytest.mark.parametrize("xlsx_path", KPI_REAL_FILES, ids=lambda p: p.name)
+def test_tc_cap_mg_excel_real_file_headers(contracts, xlsx_path: Path):
+    """
+    TC-CAP-MG-EXCEL:
+      - File thật có tiêu đề hai dòng tiếng Việt, gộp ô C1:E1. Mọi cột của hợp đồng phải ánh xạ được
+        qua aliases; nếu không, landing nạp toàn NULL và staging loại hết các dòng.
+      - Không cần database: chỉ kiểm read_file_records.
+    """
+    contract = contracts["manual_kpi"]
+    headers, rows = read_file_records(xlsx_path, contract=contract)
+
+    contract_cols = [c["name"] for c in contract["columns"]]
+    assert headers == contract_cols
+    assert len(rows) == 23  # khớp row_count của manifest
+
+    first = rows[0]
+    assert first["_excel_row"] == 3
+    assert first["data"]["broker_id"] == "BRK001"
+    assert first["data"]["target_aum_bil"] == "10,5"  # landing giữ nguyên văn, staging mới đổi dấu thập phân
+
+    by_broker = {r["data"]["broker_id"]: r["data"] for r in rows}
+    assert by_broker["BRK021"]["target_calls"] == "#REF!"  # DQ-CONGTHUC giữ nguyên ở landing
+    assert by_broker["BRK012"]["approver"] is None  # DQ-CHUADUYET
+
+
+@pytest.mark.parametrize("xlsx_path", KPI_REAL_FILES[:1], ids=lambda p: p.name)
+def test_tc_cap_mg_excel_negative_single_header_row(contracts, xlsx_path: Path):
+    """Phép thử âm của TC-CAP-MG-EXCEL: đọc với một dòng tiêu đề thì không ánh xạ được đủ cột."""
+    contract = dict(contracts["manual_kpi"], header_rows=1)
+    headers, rows = read_file_records(xlsx_path, contract=contract)
+
+    assert headers != [c["name"] for c in contract["columns"]]
+    assert len(rows) != 23
+
+
+# ==============================================================================
+# DQ-TUONGLAI ở landing: event_ts của loader theo đúng quy tắc hợp đồng và ngưỡng cấu hình
+# ==============================================================================
+def test_event_ts_future_guard_uses_threshold(contracts):
+    """
+    Giờ thiết bị đi trước server_ts quá ngưỡng thì event_ts = server_ts; trong ngưỡng thì giữ giờ thiết bị.
+    Phép thử âm: tăng ngưỡng lên 10 ngày thì dòng lệch 3 ngày không còn bị thay.
+    """
+    contract = contracts["finova_app_events"]
+    row = {"event_ts": "2026-04-30T13:45:38+07:00", "server_ts": "2026-04-27T13:46:07+07:00"}
+    near = {"event_ts": "2026-04-27T13:46:05+07:00", "server_ts": "2026-04-27T13:46:07+07:00"}
+
+    fixed = resolve_row_event_ts(contract, row, None, {"event_future_tolerance_minutes": 5})
+    assert fixed.isoformat() == "2026-04-27T13:46:07+07:00"
+    kept = resolve_row_event_ts(contract, near, None, {"event_future_tolerance_minutes": 5})
+    assert kept.isoformat() == "2026-04-27T13:46:05+07:00"
+
+    loose = resolve_row_event_ts(contract, row, None, {"event_future_tolerance_minutes": 10 * 24 * 60})
+    assert loose.isoformat() == "2026-04-30T13:45:38+07:00"
+
+
+def test_thresholds_in_sync_with_dbt_vars():
+    """INV-M6: ngưỡng chỉ có một nguồn; dbt_project.yml phải mang cùng giá trị với thresholds.yaml."""
+    import yaml
+
+    thresholds = load_thresholds()
+    dbt_vars = yaml.safe_load((REPO_ROOT / "finova-dbt" / "dbt_project.yml").read_text(encoding="utf-8"))["vars"]
+    for key, value in thresholds.items():
+        assert dbt_vars.get(key) == value, f"{key}: thresholds.yaml={value}, dbt_project.yml={dbt_vars.get(key)}"

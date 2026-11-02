@@ -3,7 +3,7 @@ table: manual_kpi
 table_kind: entity_snapshot
 capture_mode: full_snapshot
 format: xlsx
-header_rows: 2
+header_rows: 2      # dòng 1: tiêu đề nhóm (gộp ô C1:E1); dòng 2: tiêu đề cột C–E; cột A, B, F, G chỉ có tiêu đề ở dòng 1
 business_key: [broker_id]
 grain: "Chỉ tiêu KPI Quý 2/2026 của một mã môi giới trong một phiên bản file Excel đã duyệt"
 event_ts:
@@ -14,42 +14,50 @@ ingested_ts_rule: commit_ts_simulated
 mutability: mutable
 columns:
   - name: broker_id
+    aliases: ["Mã môi giới"]   # tiêu đề thật trong file Excel
     type: text
     nullable: false
     normalize: [trim, upper]
     formats: ["^BRK[0-9]{3}$"]
     on_invalid: reject
   - name: fullname
+    aliases: ["Họ tên"]   # tiêu đề thật trong file Excel
     type: text
     nullable: true
     normalize: [trim]
     formats: []
     on_invalid: null_and_count
   - name: target_new_clients
+    aliases: ["Số khách mới"]   # tiêu đề thật trong file Excel
     type: numeric
     nullable: false
     normalize: [trim]
     formats: ["^[0-9]+$"]
     on_invalid: reject
   - name: target_calls
+    aliases: ["Số cuộc gọi"]   # tiêu đề thật trong file Excel
     type: numeric
     nullable: false
     normalize: [trim]
     formats: ["^[0-9]+$"]
     on_invalid: reject
   - name: target_aum_bil
+    aliases: ["AUM tăng thêm (tỷ đồng)"]   # tiêu đề thật trong file Excel
     type: numeric
     nullable: false
-    normalize: [trim, comma_to_dot]
+    normalize: [trim]
+    decimal_sep: ","   # file nhập tay: "10,5" = 10.5; dấu chấm là phân cách nghìn ("1.200" = 1200)
     formats: ["^[0-9]+(\\.[0-9]+)?$"]
     on_invalid: reject
   - name: approver
+    aliases: ["Người duyệt"]   # tiêu đề thật trong file Excel
     type: text
     nullable: false
     normalize: [trim]
     formats: []
     on_invalid: reject
   - name: approved_date
+    aliases: ["Ngày duyệt"]   # tiêu đề thật trong file Excel
     type: date
     nullable: false
     normalize: [trim]
@@ -57,6 +65,6 @@ columns:
     on_invalid: reject
 allcode: {}
 pii_columns: [fullname]
-reject_rules: [KEY_NULL, KEY_FORMAT, UNAPPROVED_ROW, FORMULA_ERROR]
+reject_rules: [FORMULA_ERROR, KEY_NULL, KEY_FORMAT, UNAPPROVED_ROW, INVALID_NUMERIC, CONFLICT_IN_BATCH, DUPLICATE_ROW]   # staging: macros/staging/stg_manual__kpi.sql
 schema_drift: {new_column: add_nullable_and_log}
 
