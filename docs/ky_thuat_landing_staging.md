@@ -6,7 +6,7 @@
 
 ## Mục đích và cách đọc
 
-Sau lần rà soát landing và staging, có 18 vấn đề cần sửa, từ mức chặn tới mức thấp. Lần chạy trên máy thật (02/11/2026) phát hiện thêm 3 vấn đề (KT-19 đến KT-21). Tất cả được ghi ở một file để khi review hay viva chỉ cần mở một chỗ. Mỗi mục `KT-xx` gồm năm phần:
+Sau lần rà soát landing và staging, có 18 vấn đề cần sửa, từ mức chặn tới mức thấp. Lần chạy trên máy thật (02/11/2026) phát hiện thêm 3 vấn đề (KT-19 đến KT-21); khi dựng raw vault phát hiện thêm KT-22. Tất cả được ghi ở một file để khi review hay viva chỉ cần mở một chỗ. Mỗi mục `KT-xx` gồm năm phần:
 
 1. **Vấn đề**: sai ở đâu, file nào.
 2. **Lỗi xảy ra thế nào**: cơ chế, kèm hậu quả lên số liệu.
@@ -18,7 +18,7 @@ Sau lần rà soát landing và staging, có 18 vấn đề cần sửa, từ m�
 
 **Máy thật (02/11/2026).** Smart App Control chặn `python.exe` không ký số của bản Python do uv tải về. Đã chuyển `.venv` sang Python 3.12 bản python.org (có chữ ký PSF) và đặt `python-preference = "only-system"` trong `pyproject.toml`. Trên PostgreSQL 16 cục bộ (service Windows, cổng 5432), database `cap_mg_phucnd` dựng mới:
 
-- Loader nạp 104/104 lô: 61 `LOADED` (5.939 dòng), 43 `SKIPPED_DUP/DUP_CONTENT` (3.322 dòng); tổng 9.261 dòng, bằng tổng `row_count` của manifest. `load_reject` và `schema_drift` rỗng.
+- Loader nạp 104/104 lô: 61 `LOADED` (5.939 dòng), 43 `SKIPPED_DUP/DUP_CONTENT` (3.322 dòng); tổng 9.261 dòng, bằng tổng `row_count` của manifest. `load_reject` và `schema_drift` rỗng. Sau KT-22: 63 `LOADED` (5.959 dòng), 41 `SKIPPED_DUP` (3.302 dòng).
 - `uv run dbt build --selector cap_mg_staging`: PASS 69, WARN 1 (DQ-MOCOI, G7 → CN9), ERROR 0.
 - `uv run pytest`: 15 passed.
 - Phép thử âm cần sửa dữ liệu chạy trên bản sao `cap_mg_phucnd_negtest` (pg_dump/pg_restore), không đụng database thật.
@@ -58,6 +58,7 @@ Các phép thử âm trong bảng KT-07 đánh dấu "môi trường thay thế"
 | KT-19 | Cao | Xung đột giữa hai lô cùng `ingested_ts` lọt qua staging (GT-STG-KEYTS đỏ) | Đã sửa, có phép thử âm |
 | KT-20 | Trung bình | Không test nào bắt khử trùng hỏng; phép thử âm KEYTS ghi sai | Đã bổ sung test, có phép thử âm |
 | KT-21 | Thấp | Cột có mẫu `null_and_count` không kiểm mẫu; giờ thiết bị sai bị thay âm thầm | Đã sửa, có test warn |
+| KT-22 | Cao | `DUP_CONTENT` bỏ qua bản chụp quay về nội dung cũ (A → B → A) | Đã sửa, có test |
 
 **Số dòng staging trước và sau refactor** (cùng landing, 104 lô): không đổi ở cả 12 view. Như vậy refactor không làm đổi kết quả trên dữ liệu đề, và lý do loại khớp từng lỗi đã ghi ở D-KHAOSAT.
 
@@ -397,6 +398,23 @@ Sửa lại mô tả phép thử âm ở đầu `test_stg_keyts.sql`.
 
 **Bằng chứng.** DB thử: `GRPID = 'X1'` và `raw_event_ts = '20/04/2026 9h'` cho `test_stg_attr_nulled` warn 2, `not_null_stg_flex__broker_grpid` warn 1, sự kiện có `is_device_ts_invalid = true` và `event_ts = server_ts`. Database thật: test xanh, số dòng không đổi.
 
+## KT-22 (Cao): `DUP_CONTENT` bỏ qua bản chụp quay về nội dung cũ
+
+**Vấn đề.** `process_single_batch` coi lô là `DUP_CONTENT` khi `content_hash` trùng **bất kỳ** lô LOADED nào của cùng bảng. Phát hiện khi dựng raw vault (RV-05 trong `docs/ky_thuat_raw_vault.md`).
+
+**Lỗi xảy ra thế nào.** Bản chụp regrp `CAP-MG-0032` (27/04) bỏ G7, nên trùng byte với lô 17/04 (trước khi G7 xuất hiện ở lô 23/04). Lô bị bỏ qua, landing không có bản chụp không-G7, và vault chỉ biết G7 biến mất từ lô 04/05. Cây các ngày 27/04 – 03/05 vì vậy vẫn có G7 (trỏ tới CN9). `CAP-MG-0066` (G5/G6 về lại CN3) cũng bị bỏ, nhưng vô hại vì dòng tạo vòng đã bị loại ở staging. Các bảng khác không có trường hợp này.
+
+**Khắc phục.** So `content_hash` với lô LOADED **gần nhất** của bảng (theo `log_id`). Test `test_tc_cap_ldz_03b_snapshot_revert_is_loaded`: A, B, A2 (trùng A) đều LOADED; gửi tiếp A3 trùng A2 thì `DUP_CONTENT`.
+
+**Vì sao chọn.**
+- Đề cố ý bỏ qua bản chụp không đổi qua nhiều ngày (mục 7.2), tức trùng lô liền trước. Bản chụp quay về trạng thái cũ là thay đổi thật, chính là trường hợp A → B → A mà PT-ABA đòi ba phiên bản.
+- Phương án "so trong cùng business_date" bị loại: bản chụp không đổi của ngày mới sẽ được nạp hết, trái mục 7.2.
+- Lô phát lại mang giờ cũ (khác lô gần nhất) giờ được nạp, rồi T-GUARD chặn ở runner (mục 2.3.1). Đó là đúng hành vi đề yêu cầu.
+
+**Bằng chứng.** Loader trên dữ liệu đề: 63 lô `LOADED` (5.959 dòng), 41 `SKIPPED_DUP`; trước khi sửa là 61 và 43. Phép thử âm: dùng lại truy vấn cũ thì test đỏ (A2 thành `DUP_CONTENT`).
+
+**Sửa sổ đã nạp bằng loader cũ.** Lệnh `python -m loader.load --recheck-dup` xét lại các lô `DUP_CONTENT` chưa từng LOADED, theo `arrival_seq`, so với lô LOADED liền trước của bảng theo `arrival_seq`. Không so theo `log_id`, vì lô nạp lại mang `log_id` mới nhưng vẫn đứng ở vị trí cũ trong chuỗi bản chụp. Lô vẫn trùng thì không ghi thêm sổ, nên chạy lại không đổi gì. Test `test_tc_cap_ldz_03c_recheck_dup_reloads_wrongly_skipped`.
+
 ---
 
 ## Ghi nhận, không sửa
@@ -411,7 +429,7 @@ Sửa lại mô tả phép thử âm ở đầu `test_stg_keyts.sql`.
 
 Đã xong ngày 02/11/2026: dựng lại database thật và chạy `uv run dbt`, `uv run pytest` trên máy thật (xem "Môi trường kiểm chứng"); chuyển sang nhánh `feat/cap-mg-phucnd`; README (D-RUNBOOK); `docs/matran_test.md` (D-TEST, phần staging).
 
-1. Raw vault phải gọi `{{ dv_window() }}` khi đọc staging (KT-03), và tự khử trùng giữa các lô: hub chỉ chèn khóa chưa có, satellite chỉ chèn khi hashdiff khác phiên bản mới nhất, so với bảng vault chứ không chỉ trong cửa sổ. Khóa vắng khỏi bản chụp mới thì thêm phiên bản `is_deleted` (DEC-MG-D4).
+1. ~~Raw vault gọi `{{ dv_window() }}` và tự khử trùng giữa các lô; khóa vắng khỏi bản chụp mới thì ghi nhận xóa.~~ Đã xong 02/11/2026: xem `docs/ky_thuat_raw_vault.md`. Khóa vắng mặt ghi ở bảng `sts_*` thay cho `is_deleted` của DEC-MG-D4 (RV-03).
 2. Business Vault phải tách người theo `[join_date, leave_date]` (KT-02), tính `is_active` (KT-15), chọn phân công khi chồng lấn (DEC-CAP-MG-OVERLAP; 12 cặp chồng lấn trong cùng lô ở dữ liệu đề) và bắt bẫy `FRDATE < JOINDATE` của BRK017 bằng phép ghép theo hiệu lực (môi giới và phân công nằm ở các lô khác nhau nên staging không ghép được).
 3. D-DQ: bảng `dq_*` và `docs/chatluong.md` dựng từ các view `__rejected` và `test_stg_attr_nulled`, cùng cách đếm với GT-STG-RECON.
 4. Loader: chuẩn hóa ô Excel dạng ngày (`YYYY-MM-DD`) và số (định dạng cố định) trước khi ghi landing (xem "Ghi nhận, không sửa").
