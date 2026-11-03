@@ -396,8 +396,12 @@ def process_single_batch(
     excel_header_rows: int = 2,
     commit: bool = True,
     thresholds: dict[str, Any] | None = None,
+    recheck: bool = False,
 ) -> dict[str, Any]:
     """
+    recheck=True: xét lại một lô đã ghi DUP_CONTENT (--recheck-dup); so với lô LOADED liền trước theo arrival_seq,
+    và nếu vẫn trùng thì không ghi thêm dòng sổ.
+
     Xử lý nạp một lô đơn lẻ theo quy trình chuẩn của Loader Finova:
       1. batch_id đã LOADED -> SKIPPED_DUP / ALREADY_LOADED (vẫn ghi sổ, không thêm dòng landing).
       2. Kiểm tra tính toàn vẹn vật lý (file, sha256, row_count; lệch -> REJECTED_BATCH).
@@ -469,18 +473,37 @@ def process_single_batch(
             )
             return finish("REJECTED_BATCH", "ROWCOUNT_MISMATCH")
 
-        # 4. Kiểm tra gửi lặp nội dung byte-for-byte (TH-GUILAI / DUP_CONTENT)
-        cur.execute(
-            """
-            SELECT batch_id
-            FROM ctrl.batch_log
-            WHERE source_table = %s AND content_hash = %s AND status = 'LOADED'
-            ORDER BY log_id ASC
-            LIMIT 1;
-            """,
-            (source_table, content_hash),
-        )
-        dup_of = cur.fetchone()
+        # 4. Kiểm tra gửi lặp nội dung byte-for-byte (TH-GUILAI / DUP_CONTENT): chỉ so với lô LOADED
+        # gần nhất của bảng. Bản chụp quay về nội dung của một lô cũ hơn (A -> B -> A, vd regrp CAP-MG-0032
+        # bỏ G7 nên trùng lô 17/04) là thay đổi thật, phải nạp để raw vault ghi phiên bản (PT-ABA).
+        if recheck:
+            # Lô nạp lại mang log_id mới nhưng vẫn đứng ở vị trí cũ trong chuỗi bản chụp: lô liền trước lấy theo arrival_seq
+            cur.execute(
+                """
+                SELECT batch_id, content_hash
+                FROM ctrl.batch_log
+                WHERE source_table = %s AND status = 'LOADED' AND (detail->>'arrival_seq')::int < %s
+                ORDER BY (detail->>'arrival_seq')::int DESC
+                LIMIT 1;
+                """,
+                (source_table, int(manifest_row["arrival_seq"])),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT batch_id, content_hash
+                FROM ctrl.batch_log
+                WHERE source_table = %s AND status = 'LOADED'
+                ORDER BY log_id DESC
+                LIMIT 1;
+                """,
+                (source_table,),
+            )
+        latest = cur.fetchone()
+        dup_of = latest if latest is not None and latest[1] == content_hash else None
+        if dup_of and recheck:
+            # vẫn trùng lô liền trước: kết luận cũ đúng, sổ đã có dòng DUP_CONTENT của lô này
+            return finish("SKIPPED_DUP", "DUP_CONTENT")
         if dup_of:
             _log_batch(
                 cur, manifest_row, "SKIPPED_DUP", "DUP_CONTENT",
@@ -628,12 +651,48 @@ def process_single_batch(
     return finish("LOADED", None, rows_loaded, rows_rejected)
 
 
+def recheck_dup_batches(
+    conn,
+    manifest_rows: list[dict[str, str]],
+    base_dir: Path,
+    contracts: dict[str, dict[str, Any]],
+    thresholds: dict[str, Any],
+    excel_header_rows: int = 2,
+    commit: bool = True,
+) -> list[dict[str, Any]]:
+    """
+    KT-22: xét lại các dòng manifest đã ghi DUP_CONTENT mà batch_id chưa LOADED, theo thứ tự arrival_seq.
+    Lô khác lô LOADED liền trước của bảng thì nạp (bản chụp quay về nội dung cũ, A -> B -> A); vẫn trùng thì
+    giữ nguyên, không ghi thêm sổ. Chạy lại không đổi gì.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT DISTINCT (s.detail->>'arrival_seq')::int
+            FROM ctrl.batch_log s
+            WHERE s.reason_code = 'DUP_CONTENT' AND s.detail ? 'arrival_seq'
+              AND NOT EXISTS (SELECT 1 FROM ctrl.batch_log x WHERE x.batch_id = s.batch_id AND x.status = 'LOADED');
+            """
+        )
+        dup_seqs = {r[0] for r in cur.fetchall()}
+    results: list[dict[str, Any]] = []
+    for row in sorted(manifest_rows, key=lambda r: int(r["arrival_seq"])):
+        if int(row["arrival_seq"]) not in dup_seqs:
+            continue
+        results.append(process_single_batch(
+            conn=conn, manifest_row=row, base_dir=base_dir, contracts=contracts,
+            excel_header_rows=excel_header_rows, commit=commit, thresholds=thresholds, recheck=True,
+        ))
+    return results
+
+
 def load_manifest_batches(
     base_dir: Path = DEFAULT_KIT_MG_DIR,
     contracts_dir: Path = DEFAULT_CONTRACTS_DIR,
     cutoff_ts: datetime | None = None,
     batch_id_filter: str | None = None,
     excel_header_rows: int = 2,
+    recheck_dup: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Nạp các lô từ manifest.csv theo thứ tự arrival_seq:
@@ -642,6 +701,7 @@ def load_manifest_batches(
         vẫn được xử lý và ghi ALREADY_LOADED hoặc DUP_CONTENT.
       - Hỗ trợ lọc theo cutoff_ts để Runner mô phỏng chạy pipeline theo ngày.
       - Hỗ trợ lọc theo batch_id_filter.
+      - recheck_dup=True: chỉ xét lại các lô đã ghi DUP_CONTENT (recheck_dup_batches), không nạp lô mới.
     """
     contracts = load_contracts(contracts_dir)
     thresholds = load_thresholds()
@@ -652,9 +712,21 @@ def load_manifest_batches(
 
     manifest_rows.sort(key=lambda r: int(r["arrival_seq"]))
 
+    if batch_id_filter:
+        manifest_rows = [r for r in manifest_rows if r["batch_id"].strip() == batch_id_filter]
+    if cutoff_ts is not None:
+        manifest_rows = [r for r in manifest_rows
+                         if (a := parse_iso_timestamptz(r["available_ts"])) is not None and a <= cutoff_ts]
+
     conn = get_db_connection()
     try:
         ensure_landing_infrastructure(conn, contracts)
+        if recheck_dup:
+            try:
+                return recheck_dup_batches(conn, manifest_rows, base_dir, contracts, thresholds, excel_header_rows)
+            except Exception:
+                conn.rollback()
+                raise
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT DISTINCT (detail->>'arrival_seq')::int FROM ctrl.batch_log WHERE detail ? 'arrival_seq';"
@@ -666,12 +738,6 @@ def load_manifest_batches(
         for row in manifest_rows:
             if int(row["arrival_seq"]) in processed_seqs:
                 continue
-            if batch_id_filter and row["batch_id"].strip() != batch_id_filter:
-                continue
-            if cutoff_ts is not None:
-                avail_dt = parse_iso_timestamptz(row["available_ts"])
-                if avail_dt is None or avail_dt > cutoff_ts:
-                    continue
 
             try:
                 res = process_single_batch(
@@ -725,6 +791,11 @@ def main() -> None:
         default=None,
         help="Chỉ định nạp 1 mã batch_id cụ thể",
     )
+    parser.add_argument(
+        "--recheck-dup",
+        action="store_true",
+        help="Xét lại các lô đã ghi DUP_CONTENT theo quy tắc KT-22 (chỉ trùng lô LOADED liền trước mới bỏ qua)",
+    )
     args = parser.parse_args()
 
     cutoff_dt: datetime | None = None
@@ -743,6 +814,7 @@ def main() -> None:
         contracts_dir=args.contracts_dir,
         cutoff_ts=cutoff_dt,
         batch_id_filter=args.batch_id,
+        recheck_dup=args.recheck_dup,
     )
 
     counts: dict[str, int] = {}

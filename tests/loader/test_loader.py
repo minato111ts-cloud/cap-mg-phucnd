@@ -41,6 +41,8 @@ from loader.load import (
     resolve_row_event_ts,
     process_single_batch,
     read_file_records,
+    recheck_dup_batches,
+    _log_batch,
 )
 
 
@@ -295,6 +297,64 @@ def test_tc_cap_ldz_03_idempotency_and_duplicate_content(contracts, db_conn, tmp
             (batch_01,),
         )
         assert cur.fetchall() == [("LOADED", None), ("SKIPPED_DUP", "ALREADY_LOADED")]
+
+
+def test_tc_cap_ldz_03b_snapshot_revert_is_loaded(contracts, db_conn, tmp_path: Path):
+    """
+    TC-CAP-LDZ-03 (vế A -> B -> A): DUP_CONTENT chỉ so với lô LOADED gần nhất của bảng. Bản chụp quay về nội dung
+    của một lô cũ hơn là thay đổi thật (regrp CAP-MG-0032 bỏ G7 nên trùng lô 17/04) và phải được nạp.
+    Phép thử âm: so content_hash với mọi lô LOADED như trước -> lô A2 thành DUP_CONTENT, test đỏ.
+    """
+    sample_table = next(iter(contracts.keys()))
+    contract = contracts[sample_table]
+
+    manifest_a, _ = generate_synthetic_batch(contract, tmp_path, batch_id="TEST-ABA-A", num_rows=1)
+    manifest_b, _ = generate_synthetic_batch(contract, tmp_path, batch_id="TEST-ABA-B", num_rows=2)
+    manifest_a2, _ = generate_synthetic_batch(contract, tmp_path, batch_id="TEST-ABA-A2", num_rows=1)
+    assert manifest_a["sha256"] == manifest_a2["sha256"], "A2 phải trùng nội dung byte với A"
+
+    statuses = []
+    for m in (manifest_a, manifest_b, manifest_a2):
+        res = process_single_batch(db_conn, m, tmp_path, contracts, commit=False)
+        statuses.append((res["status"], res.get("reason_code")))
+    assert statuses == [("LOADED", None), ("LOADED", None), ("LOADED", None)]
+
+    # Gửi lại A2 với batch_id mới ngay sau A2: trùng lô gần nhất -> vẫn là DUP_CONTENT
+    manifest_a3 = dict(manifest_a2, batch_id="TEST-ABA-A3")
+    res = process_single_batch(db_conn, manifest_a3, tmp_path, contracts, commit=False)
+    assert (res["status"], res["reason_code"]) == ("SKIPPED_DUP", "DUP_CONTENT")
+
+
+def test_tc_cap_ldz_03c_recheck_dup_reloads_wrongly_skipped(contracts, db_conn, tmp_path: Path):
+    """
+    KT-22, --recheck-dup: sổ nạp bằng quy tắc cũ có A, B LOADED và A2, A3 (trùng A) DUP_CONTENT. Xét lại thì A2 được
+    nạp vì khác B (lô liền trước theo arrival_seq); A3 trùng A2 nên giữ DUP_CONTENT, không ghi thêm sổ. Chạy lại không đổi gì.
+    """
+    sample_table = next(iter(contracts.keys()))
+    contract = contracts[sample_table]
+    rows = []
+    for seq, (batch_id, n) in enumerate([("TEST-RCK-A", 1), ("TEST-RCK-B", 2), ("TEST-RCK-A2", 1), ("TEST-RCK-A3", 1)],
+                                        start=990001):
+        m, _ = generate_synthetic_batch(contract, tmp_path, batch_id=batch_id, num_rows=n)
+        rows.append(dict(m, arrival_seq=str(seq)))
+    for m in rows[:2]:
+        assert process_single_batch(db_conn, m, tmp_path, contracts, commit=False)["status"] == "LOADED"
+    # mô phỏng sổ do loader cũ ghi: A2, A3 bị bỏ vì trùng A
+    with db_conn.cursor() as cur:
+        cur.execute("SET ROLE finova_loader;")
+        for m in rows[2:]:
+            _log_batch(cur, m, "SKIPPED_DUP", "DUP_CONTENT", content_hash=m["sha256"])
+
+    thresholds = load_thresholds()
+    res = recheck_dup_batches(db_conn, rows, tmp_path, contracts, thresholds, commit=False)
+    assert [(r["batch_id"], r["status"]) for r in res] == [("TEST-RCK-A2", "LOADED"), ("TEST-RCK-A3", "SKIPPED_DUP")]
+    assert recheck_dup_batches(db_conn, rows, tmp_path, contracts, thresholds, commit=False) == [
+        {"batch_id": "TEST-RCK-A3", "status": "SKIPPED_DUP", "reason_code": "DUP_CONTENT", "rows_loaded": 0, "rows_rejected": 0}]
+
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT batch_id, status FROM ctrl.batch_log WHERE batch_id LIKE 'TEST-RCK-%' ORDER BY log_id;")
+        assert cur.fetchall() == [("TEST-RCK-A", "LOADED"), ("TEST-RCK-B", "LOADED"), ("TEST-RCK-A2", "SKIPPED_DUP"),
+                                  ("TEST-RCK-A3", "SKIPPED_DUP"), ("TEST-RCK-A2", "LOADED")]
 
 
 # ==============================================================================
