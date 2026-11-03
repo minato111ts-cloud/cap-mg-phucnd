@@ -5,9 +5,10 @@
 #}
 
 {% macro stg_flex__reaflnk_columns() -%}
-    reaflnk_hk,
+    bkcc_reaflnk, bk_reaflnk, reaflnk_hk,
     bkcc_broker, bk_broker, broker_hk,
-    account_hk, reaflnk_link_hk,
+    bkcc_account, bk_account, account_hk,
+    link_reaflnk_hk,
     sat_reaflnk_hd,
     autoid, broker_id, afacctno, fr_date, to_date, status, lastchange,
     record_source, source_id, batch_id, ingested_ts, event_ts, record_hash, source_row_no
@@ -34,7 +35,7 @@ hashed as (
         {{ dv_hash(["'FLEX'", 'autoid']) }} as reaflnk_hk,
         {{ dv_hash(["'FLEX'", 'broker_id']) }} as broker_hk,
         {{ dv_hash(["'FLEX'", 'afacctno']) }} as account_hk,
-        {{ dv_hash(["'FLEX'", 'autoid', 'broker_id', 'afacctno']) }} as reaflnk_link_hk,
+        {{ dv_hash(["'FLEX'", 'autoid', 'broker_id', 'afacctno']) }} as link_reaflnk_hk,
         {{ dv_hash([
             'broker_id', 'afacctno',
             'fr_date::date', 'to_date::date',
@@ -49,10 +50,15 @@ checked as (
 )
 
 select
+    'FLEX' as bkcc_reaflnk,
+    autoid as bk_reaflnk,
     reaflnk_hk,
     'FLEX' as bkcc_broker,
     broker_id as bk_broker,
-    broker_hk, account_hk, reaflnk_link_hk, sat_reaflnk_hd,
+    broker_hk,
+    'FLEX' as bkcc_account,
+    afacctno as bk_account,
+    account_hk, link_reaflnk_hk, sat_reaflnk_hd,
     autoid, broker_id, afacctno, fr_date, to_date, status, lastchange,
     'flex.flex_reaflnk' as record_source,
     source_id, batch_id, ingested_ts, event_ts, record_hash, source_row_no,

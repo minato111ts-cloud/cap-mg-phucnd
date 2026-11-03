@@ -3,7 +3,7 @@ version: 2
 # Mỗi nguồn có một view hợp lệ và một view __rejected cùng cột, thêm reason_code (DEC-ELT-REJECT).
 # Logic phân loại nằm ở macros/staging/<model>.sql. Test singular ở tests/staging/:
 #   GT-STG-RECON, GT-STG-KEYTS, GT-STG-PII, TC-CAP-MG-EVENTTIME, TC-CAP-MG-EXCEL, DQ-MOCOI (warn),
-#   test_stg_broker_hk_consistent (DEC-CAP-MG-BROKERKEY). TC-NEN-HASH-TZ ở tests/staging/test_hash_tz.py.
+#   test_stg_broker_hk_consistent (DEC-CAP-MG-BROKERKEY), GT-NHL-CONTENT (test_stg_nhl_content). TC-NEN-HASH-TZ ở tests/staging/test_hash_tz.py.
 
 models:
   - name: stg_flex__regrp
@@ -12,6 +12,8 @@ models:
       - name: regrp_hk
         description: "dv_hash('FLEX', grpid)"
         tests: [not_null]
+      - name: link_regrp_parent_hk
+        description: "dv_hash('FLEX', grpid, parentid); NULL khi đơn vị không có cha (HO)"
       - name: grpid
         tests: [not_null]
       - name: sat_regrp_hd
@@ -73,6 +75,9 @@ models:
     columns:
       - name: reaflnk_hk
         tests: [not_null]
+      - name: link_reaflnk_hk
+        description: "dv_hash('FLEX', autoid, broker_id, afacctno): khóa link_reaflnk"
+        tests: [not_null]
       - name: broker_hk
         tests: [not_null]
       - name: account_hk
@@ -119,8 +124,8 @@ models:
   - name: stg_finova_app__events
     description: "Sự kiện tương tác; khử trùng trong lô, sửa giờ thiết bị lệch tương lai theo ngưỡng cấu hình."
     columns:
-      - name: event_hk
-        description: "dv_hash('FINOVA_APP', event_id); event_id duy nhất trong mỗi lô, trùng giữa các lô do raw vault giữ lần thấy đầu"
+      - name: nhl_broker_event_hk
+        description: "dv_hash('FINOVA_APP', event_id): khóa nhl_broker_event; event_id duy nhất trong mỗi lô, trùng giữa các lô do raw vault giữ lần thấy đầu (GT-NHL-CONTENT kiểm cùng nội dung)"
         tests: [not_null]
       - name: broker_hk
         tests: [not_null]

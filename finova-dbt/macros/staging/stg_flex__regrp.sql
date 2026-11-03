@@ -6,7 +6,8 @@
 #}
 
 {% macro stg_flex__regrp_columns() -%}
-    bkcc_regrp, bk_regrp, regrp_hk, parent_regrp_hk,
+    bkcc_regrp, bk_regrp, regrp_hk,
+    bkcc_parent_regrp, bk_parent_regrp, parent_regrp_hk, link_regrp_parent_hk,
     sat_regrp_hd,
     grpid, parentid, grpname, grplevel, effdate, status,
     record_source, source_id, batch_id, ingested_ts, event_ts, record_hash, source_row_no
@@ -53,6 +54,7 @@ hashed as (
         c.grpid is not null as _in_cycle,
         {{ dv_hash(["'FLEX'", 'p.grpid']) }} as regrp_hk,
         case when p.parentid is not null then {{ dv_hash(["'FLEX'", 'p.parentid']) }} end as parent_regrp_hk,
+        case when p.parentid is not null then {{ dv_hash(["'FLEX'", 'p.grpid', 'p.parentid']) }} end as link_regrp_parent_hk,
         {{ dv_hash([
             'p.parentid', 'p.grpname',
             {'expr': 'p.grplevel', 'type': 'text'},
@@ -70,7 +72,10 @@ checked as (
 select
     'FLEX' as bkcc_regrp,
     grpid as bk_regrp,
-    regrp_hk, parent_regrp_hk, sat_regrp_hd,
+    regrp_hk,
+    'FLEX' as bkcc_parent_regrp,
+    parentid as bk_parent_regrp,
+    parent_regrp_hk, link_regrp_parent_hk, sat_regrp_hd,
     grpid, parentid, grpname, grplevel, effdate, status,
     'flex.flex_regrp' as record_source,
     source_id, batch_id, ingested_ts, event_ts, record_hash, source_row_no,

@@ -5,7 +5,7 @@
 
 {% macro stg_flex__broker_columns() -%}
     bkcc_broker, bk_broker, broker_hk,
-    regrp_hk, broker_regrp_link_hk,
+    bkcc_regrp, bk_regrp, regrp_hk, link_broker_regrp_hk,
     sat_broker_profile_hd,
     broker_id, join_date, leave_date, broker_key, grpid, status,
     email_masked, mobile_masked,
@@ -35,7 +35,7 @@ hashed as (
         -- DEC-CAP-MG-BROKERKEY (PA A): hub môi giới khóa theo ('FLEX', BROKERID), cùng công thức ở mọi staging
         {{ dv_hash(["'FLEX'", 'broker_id']) }} as broker_hk,
         case when grpid is not null then {{ dv_hash(["'FLEX'", 'grpid']) }} end as regrp_hk,
-        case when grpid is not null then {{ dv_hash(["'FLEX'", 'broker_id', 'grpid']) }} end as broker_regrp_link_hk,
+        case when grpid is not null then {{ dv_hash(["'FLEX'", 'broker_id', 'grpid']) }} end as link_broker_regrp_hk,
         -- JOINDATE trong hashdiff: mã cấp lại cho người mới thì satellite sinh phiên bản mới.
         -- fullname/email/mobile chỉ đi vào hash (một chiều), không ra cột rõ (GT-STG-PII)
         {{ dv_hash([
@@ -53,7 +53,10 @@ checked as (
 select
     'FLEX' as bkcc_broker,
     broker_id as bk_broker,
-    broker_hk, regrp_hk, broker_regrp_link_hk, sat_broker_profile_hd,
+    broker_hk,
+    'FLEX' as bkcc_regrp,
+    grpid as bk_regrp,
+    regrp_hk, link_broker_regrp_hk, sat_broker_profile_hd,
     broker_id, join_date, leave_date,
     -- Khóa người (mã + ngày vào làm): thuộc tính để Business Vault/Gold tách người, không phải khóa hub
     broker_id || ':' || to_char(join_date, 'YYYY-MM-DD') as broker_key,

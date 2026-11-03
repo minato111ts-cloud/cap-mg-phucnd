@@ -6,9 +6,10 @@
 #}
 
 {% macro stg_finova_app__events_columns() -%}
-    bkcc_event, bk_event, event_hk,
+    nhl_broker_event_hk,
     bkcc_broker, bk_broker, broker_hk,
-    account_hk, nhl_broker_event_hd,
+    bkcc_account, bk_account, account_hk,
+    nhl_broker_event_hd,
     event_id, broker_id, afacctno, event_type,
     event_ts, device_event_ts, server_ts, event_date, is_future_ts_fixed, is_device_ts_invalid,
     duration_sec, outcome,
@@ -50,7 +51,8 @@ timed as (
 hashed as (
     select
         t.*,
-        {{ dv_hash(["'FINOVA_APP'", 'event_id']) }} as event_hk,
+        -- khóa của non-historized link sự kiện (Q5: sự kiện bất biến nên không có hub riêng)
+        {{ dv_hash(["'FINOVA_APP'", 'event_id']) }} as nhl_broker_event_hk,
         {{ dv_hash(["'FLEX'", 'broker_id']) }} as broker_hk,
         {{ dv_hash(["'FLEX'", 'afacctno']) }} as account_hk,
         -- nội dung của non-historized link sự kiện (GT-NHL-CONTENT); giờ thiết bị gốc để phát hiện gửi lại khác nội dung
@@ -68,12 +70,13 @@ checked as (
 )
 
 select
-    'FINOVA_APP' as bkcc_event,
-    c.event_id as bk_event,
-    c.event_hk,
+    c.nhl_broker_event_hk,
     'FLEX' as bkcc_broker,
     c.broker_id as bk_broker,
-    c.broker_hk, c.account_hk, c.nhl_broker_event_hd,
+    c.broker_hk,
+    'FLEX' as bkcc_account,
+    c.afacctno as bk_account,
+    c.account_hk, c.nhl_broker_event_hd,
     c.event_id, c.broker_id, c.afacctno, c.event_type,
     c.event_ts, c.device_event_ts, c.server_ts,
     (c.event_ts at time zone 'Asia/Ho_Chi_Minh')::date as event_date,
