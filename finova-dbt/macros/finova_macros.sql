@@ -10,7 +10,8 @@
 {% macro dv_window(col='ingested_ts') -%}
     {%- set lo = var('lo_ts', none) -%}
     {%- set hi = var('hi_ts', none) -%}
-    {%- if lo is none or hi is none -%}
+    {#- Chỉ dừng lúc thực thi: lúc parse dbt render mọi model không kèm --vars (dbt ls, build staging) -#}
+    {%- if (lo is none or hi is none) and execute -%}
         {{ exceptions.raise_compiler_error("Thiếu biến bắt buộc lo_ts hoặc hi_ts cho dv_window()") }}
     {%- endif -%}
     ({{ col }} > '{{ lo }}'::timestamptz and {{ col }} <= '{{ hi }}'::timestamptz)

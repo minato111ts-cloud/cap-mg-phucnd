@@ -1,0 +1,187 @@
+version: 2
+
+# Unit test của mẫu nạp (Bảng 86) trên dữ liệu giả, không cần lô thật: PT-ABA, PT-IDEMP (chạy lại cửa sổ),
+# PT-ESAT-SWITCH, và T-STS cho bản chụp. Khóa băm giả dạng bytea hex ('\x01').
+# dbt so cột bytea trong expect như object Python nên luôn lệch; expect chỉ dùng cột text,
+# và mỗi fixture chỉ có một khóa sinh được dòng kỳ vọng.
+# Phép thử âm ghi ở docs/matran_test.md.
+
+unit_tests:
+  - name: ut_sat_aba_three_versions
+    description: "PT-ABA: A -> B -> A trong một cửa sổ cho ba phiên bản."
+    model: sat_regrp__flex
+    overrides:
+      vars: {lo_ts: "-infinity", hi_ts: "2026-12-31T00:00:00+07:00"}
+      macros: {is_incremental: false}
+    given:
+      - input: ref('stg_flex__regrp')
+        rows:
+          - {regrp_hk: '\x01', sat_regrp_hd: '\xaa', grpid: G9, parentid: CN1, ingested_ts: '2026-04-17 22:00:00+07', event_ts: '2026-04-17 22:00:00+07', record_source: flex.flex_regrp}
+          - {regrp_hk: '\x01', sat_regrp_hd: '\xbb', grpid: G9, parentid: CN2, ingested_ts: '2026-04-20 22:00:00+07', event_ts: '2026-04-20 22:00:00+07', record_source: flex.flex_regrp}
+          - {regrp_hk: '\x01', sat_regrp_hd: '\xaa', grpid: G9, parentid: CN1, ingested_ts: '2026-04-21 22:00:00+07', event_ts: '2026-04-21 22:00:00+07', record_source: flex.flex_regrp}
+    expect:
+      rows:
+        - {parentid: CN1, ingested_ts: '2026-04-17 22:00:00+07'}
+        - {parentid: CN2, ingested_ts: '2026-04-20 22:00:00+07'}
+        - {parentid: CN1, ingested_ts: '2026-04-21 22:00:00+07'}
+
+  - name: ut_sat_first_row_compares_with_vault
+    description: "T-SAT incremental: dòng đầu cửa sổ trùng phiên bản trong vault thì không ghi; dòng khác thì ghi."
+    model: sat_regrp__flex
+    overrides:
+      vars: {lo_ts: "2026-04-17T22:00:00+07:00", hi_ts: "2026-12-31T00:00:00+07:00"}
+      macros: {is_incremental: true}
+    given:
+      - input: this
+        rows:
+          - {regrp_hk: '\x01', hash_diff: '\xaa', parentid: CN1, ingested_ts: '2026-04-17 22:00:00+07'}
+      - input: ref('stg_flex__regrp')
+        rows:
+          - {regrp_hk: '\x01', sat_regrp_hd: '\xaa', parentid: CN1, ingested_ts: '2026-04-20 22:00:00+07', event_ts: '2026-04-20 22:00:00+07', record_source: flex.flex_regrp}
+          - {regrp_hk: '\x01', sat_regrp_hd: '\xbb', parentid: CN2, ingested_ts: '2026-04-21 22:00:00+07', event_ts: '2026-04-21 22:00:00+07', record_source: flex.flex_regrp}
+    expect:
+      rows:
+        - {parentid: CN2, ingested_ts: '2026-04-21 22:00:00+07'}
+
+  - name: ut_sat_rerun_window_adds_nothing
+    description: "PT-IDEMP: chạy lại cửa sổ đã nạp (A rồi B, vault đã có cả hai) không thêm dòng."
+    model: sat_regrp__flex
+    overrides:
+      vars: {lo_ts: "-infinity", hi_ts: "2026-12-31T00:00:00+07:00"}
+      macros: {is_incremental: true}
+    given:
+      - input: this
+        rows:
+          - {regrp_hk: '\x01', hash_diff: '\xaa', ingested_ts: '2026-04-17 22:00:00+07'}
+          - {regrp_hk: '\x01', hash_diff: '\xbb', ingested_ts: '2026-04-20 22:00:00+07'}
+      - input: ref('stg_flex__regrp')
+        rows:
+          - {regrp_hk: '\x01', sat_regrp_hd: '\xaa', ingested_ts: '2026-04-17 22:00:00+07', event_ts: '2026-04-17 22:00:00+07', record_source: flex.flex_regrp}
+          - {regrp_hk: '\x01', sat_regrp_hd: '\xaa', ingested_ts: '2026-04-18 22:00:00+07', event_ts: '2026-04-18 22:00:00+07', record_source: flex.flex_regrp}
+          - {regrp_hk: '\x01', sat_regrp_hd: '\xbb', ingested_ts: '2026-04-20 22:00:00+07', event_ts: '2026-04-20 22:00:00+07', record_source: flex.flex_regrp}
+    expect:
+      rows: []
+
+  - name: ut_esat_switch_in_window
+    description: "PT-ESAT-SWITCH: driving key đổi link trong cửa sổ: một dòng đóng, một dòng mở, cùng ingested_ts."
+    model: esat_regrp_parent__flex
+    overrides:
+      vars: {lo_ts: "-infinity", hi_ts: "2026-12-31T00:00:00+07:00"}
+      macros: {is_incremental: false}
+    given:
+      - input: ref('stg_flex__regrp')
+        rows:
+          - {regrp_hk: '\x04', link_regrp_parent_hk: '\x41', ingested_ts: '2026-04-17 22:00:00+07', event_ts: '2026-04-17 22:00:00+07', record_source: flex.flex_regrp}
+          - {regrp_hk: '\x04', link_regrp_parent_hk: '\x41', ingested_ts: '2026-04-20 22:00:00+07', event_ts: '2026-04-20 22:00:00+07', record_source: flex.flex_regrp}
+          - {regrp_hk: '\x04', link_regrp_parent_hk: '\x42', ingested_ts: '2026-05-04 22:00:00+07', event_ts: '2026-05-04 22:00:00+07', record_source: flex.flex_regrp}
+      - input: ref('link_regrp_parent')
+        rows: []
+    expect:
+      rows:
+        - {is_active: true, ingested_ts: '2026-04-17 22:00:00+07'}
+        - {is_active: true, ingested_ts: '2026-05-04 22:00:00+07'}
+        - {is_active: false, ingested_ts: '2026-05-04 22:00:00+07'}
+
+  - name: ut_esat_switch_against_vault
+    description: "PT-ESAT-SWITCH incremental: link đang hiệu lực lấy từ vault; đổi link thì đóng link trong vault."
+    model: esat_regrp_parent__flex
+    overrides:
+      vars: {lo_ts: "2026-04-20T22:00:00+07:00", hi_ts: "2026-12-31T00:00:00+07:00"}
+      macros: {is_incremental: true}
+    given:
+      - input: this
+        rows:
+          - {link_regrp_parent_hk: '\x41', is_active: true, ingested_ts: '2026-04-17 22:00:00+07'}
+      - input: ref('link_regrp_parent')
+        rows:
+          - {link_regrp_parent_hk: '\x41', regrp_hk: '\x04'}
+          - {link_regrp_parent_hk: '\x42', regrp_hk: '\x04'}
+      - input: ref('stg_flex__regrp')
+        rows:
+          - {regrp_hk: '\x04', link_regrp_parent_hk: '\x42', ingested_ts: '2026-05-04 22:00:00+07', event_ts: '2026-05-04 22:00:00+07', record_source: flex.flex_regrp}
+    expect:
+      rows:
+        - {is_active: true, ingested_ts: '2026-05-04 22:00:00+07'}
+        - {is_active: false, ingested_ts: '2026-05-04 22:00:00+07'}
+
+  - name: ut_sts_snapshot_absence
+    description: "T-STS bản chụp: khóa vắng khỏi lô thì DELETED; có lại (kể cả chỉ ở __rejected) thì ACTIVE."
+    model: sts_regrp__flex
+    overrides:
+      vars: {lo_ts: "-infinity", hi_ts: "2026-12-31T00:00:00+07:00"}
+      macros: {is_incremental: false}
+    given:
+      - input: ref('stg_flex__regrp')
+        rows:
+          - {regrp_hk: '\x01', ingested_ts: '2026-04-17 22:00:00+07', event_ts: '2026-04-17 22:00:00+07', record_source: flex.flex_regrp}
+          - {regrp_hk: '\x02', ingested_ts: '2026-04-17 22:00:00+07', event_ts: '2026-04-17 22:00:00+07', record_source: flex.flex_regrp}
+          - {regrp_hk: '\x01', ingested_ts: '2026-04-20 22:00:00+07', event_ts: '2026-04-20 22:00:00+07', record_source: flex.flex_regrp}
+          - {regrp_hk: '\x01', ingested_ts: '2026-04-21 22:00:00+07', event_ts: '2026-04-21 22:00:00+07', record_source: flex.flex_regrp}
+          - {regrp_hk: '\x01', ingested_ts: '2026-04-22 22:00:00+07', event_ts: '2026-04-22 22:00:00+07', record_source: flex.flex_regrp}
+      - input: ref('stg_flex__regrp__rejected')
+        rows:
+          - {regrp_hk: '\x02', ingested_ts: '2026-04-21 22:00:00+07', event_ts: '2026-04-21 22:00:00+07', record_source: flex.flex_regrp}
+          - {regrp_hk: '\x03', ingested_ts: '2026-04-22 22:00:00+07', event_ts: '2026-04-22 22:00:00+07', record_source: flex.flex_regrp}
+      - input: ref('sat_regrp__flex')
+        rows:
+          - {regrp_hk: '\x01', ingested_ts: '2026-04-17 22:00:00+07'}
+          - {regrp_hk: '\x02', ingested_ts: '2026-04-17 22:00:00+07'}
+    expect:
+      rows:
+        - {ingested_ts: '2026-04-20 22:00:00+07', status: DELETED}
+        - {ingested_ts: '2026-04-21 22:00:00+07', status: ACTIVE}
+        - {ingested_ts: '2026-04-22 22:00:00+07', status: DELETED}
+
+  - name: ut_sat_day_revdate_older_date_after_newer
+    description: "PT-REVDATE (T-SAT-DAY): ngày 05/05 về sau ngày 06/05, cùng NAV. Ngày 05/05 vẫn có phiên bản riêng; 06/05 gửi lại không đổi thì không ghi."
+    model: sat_account_nav_daily__flex
+    overrides:
+      vars: {lo_ts: "2026-05-06T22:00:00+07:00", hi_ts: "2026-12-31T00:00:00+07:00"}
+      macros: {is_incremental: true}
+    given:
+      - input: this
+        rows:
+          - {account_hk: '\x01', business_date: '2026-05-06', hash_diff: '\xaa', nav: 100, ingested_ts: '2026-05-06 22:00:00+07'}
+      - input: ref('stg_ref__nav')
+        rows:
+          - {account_hk: '\x01', sat_account_nav_hd: '\xaa', tx_date: '2026-05-05', nav: 100, ingested_ts: '2026-05-07 22:00:00+07', event_ts: '2026-05-05 15:00:00+07', record_source: ref.ref_nav}
+          - {account_hk: '\x01', sat_account_nav_hd: '\xaa', tx_date: '2026-05-06', nav: 100, ingested_ts: '2026-05-07 22:00:00+07', event_ts: '2026-05-06 15:00:00+07', record_source: ref.ref_nav}
+    expect:
+      rows:
+        - {business_date: '2026-05-05', nav: 100, ingested_ts: '2026-05-07 22:00:00+07'}
+
+  - name: ut_sat_day_revdate_in_window
+    description: "PT-REVDATE (T-SAT-DAY) trong một cửa sổ: 06/05 nạp trước, 05/05 nạp sau rồi đính chính. Mỗi ngày so với chính ngày đó."
+    model: sat_account_nav_daily__flex
+    overrides:
+      vars: {lo_ts: "-infinity", hi_ts: "2026-12-31T00:00:00+07:00"}
+      macros: {is_incremental: false}
+    given:
+      - input: ref('stg_ref__nav')
+        rows:
+          - {account_hk: '\x01', sat_account_nav_hd: '\xaa', tx_date: '2026-05-06', nav: 100, ingested_ts: '2026-05-06 22:00:00+07', event_ts: '2026-05-06 15:00:00+07', record_source: ref.ref_nav}
+          - {account_hk: '\x01', sat_account_nav_hd: '\xaa', tx_date: '2026-05-05', nav: 100, ingested_ts: '2026-05-07 22:00:00+07', event_ts: '2026-05-05 15:00:00+07', record_source: ref.ref_nav}
+          - {account_hk: '\x01', sat_account_nav_hd: '\xbb', tx_date: '2026-05-05', nav: 90, ingested_ts: '2026-05-08 22:00:00+07', event_ts: '2026-05-05 15:00:00+07', record_source: ref.ref_nav}
+    expect:
+      rows:
+        - {business_date: '2026-05-06', nav: 100, ingested_ts: '2026-05-06 22:00:00+07'}
+        - {business_date: '2026-05-05', nav: 100, ingested_ts: '2026-05-07 22:00:00+07'}
+        - {business_date: '2026-05-05', nav: 90, ingested_ts: '2026-05-08 22:00:00+07'}
+
+  - name: ut_nhl_revdate_older_event_after_newer
+    description: "PT-REVDATE (T-NHL): sự kiện ngày 05/05 về sau sự kiện 06/05 vẫn được ghi; sự kiện đã có gửi lại thì không ghi."
+    model: nhl_broker_event
+    overrides:
+      vars: {lo_ts: "2026-05-06T22:00:00+07:00", hi_ts: "2026-12-31T00:00:00+07:00"}
+      macros: {is_incremental: true}
+    given:
+      - input: this
+        rows:
+          - {nhl_broker_event_hk: '\x02', event_id: E2, event_ts: '2026-05-06 10:00:00+07', ingested_ts: '2026-05-06 22:00:00+07'}
+      - input: ref('stg_finova_app__events')
+        rows:
+          - {nhl_broker_event_hk: '\x01', nhl_broker_event_hd: '\xa1', event_id: E1, event_ts: '2026-05-05 09:00:00+07', event_date: '2026-05-05', ingested_ts: '2026-05-07 22:00:00+07', record_source: finova_app.app_events}
+          - {nhl_broker_event_hk: '\x02', nhl_broker_event_hd: '\xa2', event_id: E2, event_ts: '2026-05-06 10:00:00+07', event_date: '2026-05-06', ingested_ts: '2026-05-07 22:00:00+07', record_source: finova_app.app_events}
+    expect:
+      rows:
+        - {event_id: E1, ingested_ts: '2026-05-07 22:00:00+07'}

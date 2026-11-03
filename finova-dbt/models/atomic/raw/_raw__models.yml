@@ -1,0 +1,592 @@
+version: 2
+# Raw vault CAP-MG (atomic, incremental append). Test chung theo loại bảng (Bảng 85):
+#   hub: GT-HUB-UNIQ, GT-HUB-BKCC, GT-HUB-SHAPE; link/nhl: GT-LNK-UNIQ, GT-LNK-PARENT, GT-LNK-SHAPE;
+#   sat/esat/sts: GT-SAT-PK, GT-SAT-PARENT, GT-SAT-NOREDUNDANT (warn), GT-STS-ENUM; mọi bảng: GT-TS-NOTNULL.
+# Test singular ở tests/raw/, unit test (PT-ABA, PT-ESAT-SWITCH, sts) ở _raw__unit_tests.yml.
+
+models:
+  - name: hub_broker
+    description: "Hub môi giới (T-HUB); khóa = mã nguồn FLEX theo DEC-CAP-MG-BROKERKEY PA A."
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [bkcc, broker_id]
+      - dv_shape:
+          arguments:
+            allowed: [broker_hk, bkcc, broker_id, ingested_ts, event_ts, record_source]
+    columns:
+      - name: broker_hk
+        tests:
+          - not_null
+          - unique
+      - name: bkcc
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('ref_bkcc')
+                field: bkcc
+      - name: broker_id
+        tests:
+          - not_null
+      - name: ingested_ts
+        tests:
+          - not_null
+      - name: event_ts
+        tests:
+          - not_null
+
+  - name: hub_account
+    description: "Hub tiểu khoản (T-HUB); nhận khóa từ phân công, NAV, sự kiện."
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [bkcc, afacctno]
+      - dv_shape:
+          arguments:
+            allowed: [account_hk, bkcc, afacctno, ingested_ts, event_ts, record_source]
+    columns:
+      - name: account_hk
+        tests:
+          - not_null
+          - unique
+      - name: bkcc
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('ref_bkcc')
+                field: bkcc
+      - name: afacctno
+        tests:
+          - not_null
+      - name: ingested_ts
+        tests:
+          - not_null
+      - name: event_ts
+        tests:
+          - not_null
+
+  - name: hub_regrp
+    description: "Hub đơn vị (T-HUB); nhận cả mã cha và nhóm của môi giới."
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [bkcc, grpid]
+      - dv_shape:
+          arguments:
+            allowed: [regrp_hk, bkcc, grpid, ingested_ts, event_ts, record_source]
+    columns:
+      - name: regrp_hk
+        tests:
+          - not_null
+          - unique
+      - name: bkcc
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('ref_bkcc')
+                field: bkcc
+      - name: grpid
+        tests:
+          - not_null
+      - name: ingested_ts
+        tests:
+          - not_null
+      - name: event_ts
+        tests:
+          - not_null
+
+  - name: hub_reaflnk
+    description: "Hub phân công (T-HUB), khóa AUTOID (DEC-MG-B2)."
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [bkcc, autoid]
+      - dv_shape:
+          arguments:
+            allowed: [reaflnk_hk, bkcc, autoid, ingested_ts, event_ts, record_source]
+    columns:
+      - name: reaflnk_hk
+        tests:
+          - not_null
+          - unique
+      - name: bkcc
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('ref_bkcc')
+                field: bkcc
+      - name: autoid
+        tests:
+          - not_null
+      - name: ingested_ts
+        tests:
+          - not_null
+      - name: event_ts
+        tests:
+          - not_null
+
+  - name: link_broker_regrp
+    description: "Link môi giới - nhóm (T-LINK)."
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [broker_hk, regrp_hk]
+      - dv_shape:
+          arguments:
+            allowed: [link_broker_regrp_hk, broker_hk, regrp_hk, ingested_ts, event_ts, record_source]
+    columns:
+      - name: link_broker_regrp_hk
+        tests:
+          - not_null
+          - unique
+      - name: broker_hk
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('hub_broker')
+                field: broker_hk
+      - name: regrp_hk
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('hub_regrp')
+                field: regrp_hk
+      - name: ingested_ts
+        tests:
+          - not_null
+      - name: event_ts
+        tests:
+          - not_null
+
+  - name: link_regrp_parent
+    description: "Link đơn vị - đơn vị cha (T-LINK)."
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [regrp_hk, parent_regrp_hk]
+      - dv_shape:
+          arguments:
+            allowed: [link_regrp_parent_hk, regrp_hk, parent_regrp_hk, ingested_ts, event_ts, record_source]
+    columns:
+      - name: link_regrp_parent_hk
+        tests:
+          - not_null
+          - unique
+      - name: regrp_hk
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('hub_regrp')
+                field: regrp_hk
+      - name: parent_regrp_hk
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('hub_regrp')
+                field: regrp_hk
+      - name: ingested_ts
+        tests:
+          - not_null
+      - name: event_ts
+        tests:
+          - not_null
+
+  - name: link_reaflnk
+    description: "Link phân công - môi giới - tiểu khoản (T-LINK)."
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [reaflnk_hk, broker_hk, account_hk]
+      - dv_shape:
+          arguments:
+            allowed: [link_reaflnk_hk, reaflnk_hk, broker_hk, account_hk, ingested_ts, event_ts, record_source]
+    columns:
+      - name: link_reaflnk_hk
+        tests:
+          - not_null
+          - unique
+      - name: reaflnk_hk
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('hub_reaflnk')
+                field: reaflnk_hk
+      - name: broker_hk
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('hub_broker')
+                field: broker_hk
+      - name: account_hk
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('hub_account')
+                field: account_hk
+      - name: ingested_ts
+        tests:
+          - not_null
+      - name: event_ts
+        tests:
+          - not_null
+
+  - name: nhl_broker_event
+    description: "Sự kiện tương tác bất biến (T-NHL), khóa event_id."
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [broker_hk, account_hk, event_id]
+    columns:
+      - name: nhl_broker_event_hk
+        tests:
+          - not_null
+          - unique
+      - name: broker_hk
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('hub_broker')
+                field: broker_hk
+      - name: account_hk
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('hub_account')
+                field: account_hk
+      - name: ingested_ts
+        tests:
+          - not_null
+      - name: event_ts
+        tests:
+          - not_null
+
+  - name: sat_broker_profile__flex
+    description: "Hồ sơ môi giới (T-SAT); join_date trong hash_diff tách người khi mã cấp lại."
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [broker_hk, ingested_ts]
+      - dv_sat_no_redundant:
+          arguments:
+            parent: broker_hk
+          config:
+            severity: warn
+    columns:
+      - name: broker_hk
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('hub_broker')
+                field: broker_hk
+      - name: hash_diff
+        tests:
+          - not_null
+      - name: ingested_ts
+        tests:
+          - not_null
+      - name: event_ts
+        tests:
+          - not_null
+
+  - name: sat_regrp__flex
+    description: "Đơn vị (T-SAT)."
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [regrp_hk, ingested_ts]
+      - dv_sat_no_redundant:
+          arguments:
+            parent: regrp_hk
+          config:
+            severity: warn
+    columns:
+      - name: regrp_hk
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('hub_regrp')
+                field: regrp_hk
+      - name: hash_diff
+        tests:
+          - not_null
+      - name: ingested_ts
+        tests:
+          - not_null
+      - name: event_ts
+        tests:
+          - not_null
+
+  - name: sat_reaflnk__flex
+    description: "Phân công (T-SAT); fr_date/to_date là hiệu lực nghiệp vụ."
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [reaflnk_hk, ingested_ts]
+      - dv_sat_no_redundant:
+          arguments:
+            parent: reaflnk_hk
+          config:
+            severity: warn
+    columns:
+      - name: reaflnk_hk
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('hub_reaflnk')
+                field: reaflnk_hk
+      - name: hash_diff
+        tests:
+          - not_null
+      - name: ingested_ts
+        tests:
+          - not_null
+      - name: event_ts
+        tests:
+          - not_null
+
+  - name: sat_broker_kpi__manual
+    description: "Chỉ tiêu quý nhập tay (T-SAT); v2 thay v1 từ ingested_ts của nó."
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [broker_hk, ingested_ts]
+      - dv_sat_no_redundant:
+          arguments:
+            parent: broker_hk
+          config:
+            severity: warn
+    columns:
+      - name: broker_hk
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('hub_broker')
+                field: broker_hk
+      - name: hash_diff
+        tests:
+          - not_null
+      - name: ingested_ts
+        tests:
+          - not_null
+      - name: event_ts
+        tests:
+          - not_null
+
+  - name: sat_account_nav_daily__flex
+    description: "NAV cuối ngày (T-SAT-DAY), phiên bản theo (tiểu khoản, ngày)."
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [account_hk, business_date, ingested_ts]
+      - dv_sat_no_redundant:
+          arguments:
+            parent: account_hk
+            partition_extra: [business_date]
+          config:
+            severity: warn
+    columns:
+      - name: account_hk
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('hub_account')
+                field: account_hk
+      - name: hash_diff
+        tests:
+          - not_null
+      - name: ingested_ts
+        tests:
+          - not_null
+      - name: event_ts
+        tests:
+          - not_null
+
+  - name: esat_regrp_parent__flex
+    description: "Hiệu lực link đơn vị - cha (T-ESAT-DK, driving key regrp_hk)."
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [link_regrp_parent_hk, ingested_ts]
+      - dv_sat_no_redundant:
+          arguments:
+            parent: link_regrp_parent_hk
+          config:
+            severity: warn
+    columns:
+      - name: link_regrp_parent_hk
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('link_regrp_parent')
+                field: link_regrp_parent_hk
+      - name: hash_diff
+        tests:
+          - not_null
+      - name: is_active
+        tests:
+          - not_null
+      - name: ingested_ts
+        tests:
+          - not_null
+      - name: event_ts
+        tests:
+          - not_null
+
+  - name: esat_broker_regrp__flex
+    description: "Hiệu lực link môi giới - nhóm (T-ESAT-DK, driving key broker_hk)."
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [link_broker_regrp_hk, ingested_ts]
+      - dv_sat_no_redundant:
+          arguments:
+            parent: link_broker_regrp_hk
+          config:
+            severity: warn
+    columns:
+      - name: link_broker_regrp_hk
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('link_broker_regrp')
+                field: link_broker_regrp_hk
+      - name: hash_diff
+        tests:
+          - not_null
+      - name: is_active
+        tests:
+          - not_null
+      - name: ingested_ts
+        tests:
+          - not_null
+      - name: event_ts
+        tests:
+          - not_null
+
+  - name: sts_regrp__flex
+    description: "Đơn vị có mặt trong bản chụp flex_regrp (ACTIVE/DELETED, chỉ ghi khi đổi)."
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [regrp_hk, ingested_ts]
+    columns:
+      - name: regrp_hk
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('hub_regrp')
+                field: regrp_hk
+      - name: status
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['ACTIVE', 'DELETED']
+      - name: ingested_ts
+        tests:
+          - not_null
+      - name: event_ts
+        tests:
+          - not_null
+
+  - name: sts_broker__flex
+    description: "Môi giới có mặt trong bản chụp flex_broker."
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [broker_hk, ingested_ts]
+    columns:
+      - name: broker_hk
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('hub_broker')
+                field: broker_hk
+      - name: status
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['ACTIVE', 'DELETED']
+      - name: ingested_ts
+        tests:
+          - not_null
+      - name: event_ts
+        tests:
+          - not_null
+
+  - name: sts_reaflnk__flex
+    description: "Phân công có mặt trong bản chụp flex_reaflnk."
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [reaflnk_hk, ingested_ts]
+    columns:
+      - name: reaflnk_hk
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('hub_reaflnk')
+                field: reaflnk_hk
+      - name: status
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['ACTIVE', 'DELETED']
+      - name: ingested_ts
+        tests:
+          - not_null
+      - name: event_ts
+        tests:
+          - not_null
+
+  - name: sts_broker_kpi__manual
+    description: "Dòng chỉ tiêu của môi giới có mặt trong file manual_kpi."
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [broker_hk, ingested_ts]
+    columns:
+      - name: broker_hk
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('hub_broker')
+                field: broker_hk
+      - name: status
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['ACTIVE', 'DELETED']
+      - name: ingested_ts
+        tests:
+          - not_null
+      - name: event_ts
+        tests:
+          - not_null

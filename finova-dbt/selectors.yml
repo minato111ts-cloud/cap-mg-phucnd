@@ -6,10 +6,14 @@ selectors:
       value: tests/khung
 
   - name: cap_mg_staging
-    description: "Tầng staging"
+    description: "Tầng staging; bỏ test raw vault đọc cả staging (vd test_raw_completeness), vì chạy trước khi vault được dựng"
     definition:
-      method: tag
-      value: staging
+      union:
+        - method: tag
+          value: staging
+        - exclude:
+            - method: tag
+              value: dv_raw
 
   - name: cap_mg_raw
     description: "Tầng Raw Vault"
