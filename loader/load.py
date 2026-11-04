@@ -59,7 +59,7 @@ def normalize_token(s: str | None) -> str:
 def get_db_connection(role: str = "finova_loader", autocommit: bool = False):
     """Tạo kết nối PostgreSQL và chuyển sang role chức năng (mặc định finova_loader) theo ma trận quyền."""
     host = os.environ.get("CAP_PGHOST", "127.0.0.1")
-    port = int(os.environ.get("CAP_PGPORT", "5432"))  # REQ-ENV-07: container finova-pg16-dev nghe 127.0.0.1:5436
+    port = int(os.environ.get("CAP_PGPORT", "5436"))  # REQ-ENV-07: container finova-pg16-dev nghe 127.0.0.1:5436
     dbname = os.environ["CAP_DBNAME"]
     user = os.environ.get("CAP_PGUSER", "postgres")
     conn = psycopg2.connect(
