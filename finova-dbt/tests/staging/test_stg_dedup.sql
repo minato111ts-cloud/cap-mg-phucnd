@@ -15,7 +15,7 @@
     ('stg_flex__regrp', ['grpid'], 'sat_regrp_hd'),
     ('stg_flex__broker', ['broker_id'], 'sat_broker_profile_hd'),
     ('stg_flex__reaflnk', ['autoid'], 'sat_reaflnk_hd'),
-    ('stg_ref__nav', ['afacctno', 'tx_date'], 'sat_account_nav_hd'),
+    ('stg_flex__nav', ['afacctno', 'tx_date'], 'sat_account_nav_hd'),
     ('stg_finova_app__events', ['event_id'], 'nhl_broker_event_hd'),
     ('stg_manual__kpi', ['broker_id'], 'sat_broker_kpi_hd'),
 ] %}

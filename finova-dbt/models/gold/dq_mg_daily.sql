@@ -11,7 +11,7 @@
     ('flex_regrp', 'stg_flex__regrp', 'grpid'),
     ('flex_broker', 'stg_flex__broker', 'broker_id'),
     ('flex_reaflnk', 'stg_flex__reaflnk', 'autoid'),
-    ('ref_nav', 'stg_ref__nav', 'afacctno'),
+    ('ref_nav', 'stg_flex__nav', 'afacctno'),
     ('finova_app_events', 'stg_finova_app__events', 'event_id'),
     ('manual_kpi', 'stg_manual__kpi', 'broker_id'),
 ] %}

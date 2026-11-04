@@ -33,6 +33,6 @@ columns:
     on_invalid: reject
 allcode: {}
 pii_columns: []
-reject_rules: [KEY_NULL, INVALID_DATE, KEY_FORMAT, INVALID_NUMERIC, CONFLICT_IN_BATCH, DUPLICATE_ROW]   # staging: macros/staging/stg_ref__nav.sql
+reject_rules: [KEY_NULL, INVALID_DATE, KEY_FORMAT, INVALID_NUMERIC, CONFLICT_IN_BATCH, DUPLICATE_ROW]   # staging: macros/staging/stg_flex__nav.sql
 schema_drift: {new_column: add_nullable_and_log}
 

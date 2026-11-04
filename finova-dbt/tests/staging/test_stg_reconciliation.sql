@@ -9,7 +9,7 @@
     ('flex_regrp', 'stg_flex__regrp'),
     ('flex_broker', 'stg_flex__broker'),
     ('flex_reaflnk', 'stg_flex__reaflnk'),
-    ('ref_nav', 'stg_ref__nav'),
+    ('ref_nav', 'stg_flex__nav'),
     ('finova_app_events', 'stg_finova_app__events'),
     ('manual_kpi', 'stg_manual__kpi'),
 ] %}

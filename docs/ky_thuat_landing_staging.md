@@ -69,7 +69,7 @@ Các phép thử âm trong bảng KT-07 đánh dấu "môi trường thay thế"
 | `stg_flex__reaflnk` | 1306 | 10 | 10 `INVALID_DATE_RANGE` (AUTOID 201, 202 × 5 lô) |
 | `stg_flex__regrp` | 50 | 2 | 2 `CYCLE_DETECTED` (G5, G6 ở CAP-MG-0061) |
 | `stg_manual__kpi` | 38 | 8 | 6 `UNAPPROVED_ROW`, 2 `FORMULA_ERROR` |
-| `stg_ref__nav` | 3800 | 0 | — |
+| `stg_flex__nav` | 3800 | 0 | — |
 
 ---
 
@@ -414,6 +414,12 @@ Sửa lại mô tả phép thử âm ở đầu `test_stg_keyts.sql`.
 **Bằng chứng.** Loader trên dữ liệu đề: 63 lô `LOADED` (5.959 dòng), 41 `SKIPPED_DUP`; trước khi sửa là 61 và 43. Phép thử âm: dùng lại truy vấn cũ thì test đỏ (A2 thành `DUP_CONTENT`).
 
 **Sửa sổ đã nạp bằng loader cũ.** Lệnh `python -m loader.load --recheck-dup` xét lại các lô `DUP_CONTENT` chưa từng LOADED, theo `arrival_seq`, so với lô LOADED liền trước của bảng theo `arrival_seq`. Không so theo `log_id`, vì lô nạp lại mang `log_id` mới nhưng vẫn đứng ở vị trí cũ trong chuỗi bản chụp. Lô vẫn trùng thì không ghi thêm sổ, nên chạy lại không đổi gì. Test `test_tc_cap_ldz_03c_recheck_dup_reloads_wrongly_skipped`.
+
+## KT-23 (Thấp): Tên `stg_ref__nav` sai quy ước QT-TEN-STG
+
+**Vấn đề.** QT-TEN-STG (MUST): `stg_<nguồn>__<bảng nguồn>`, nguồn chỉ là `flex`, `fiin`, `finova_app`, `manual`. View NAV mang tên `stg_ref__nav`, lấy `ref` (tên nhóm của bảng landing `ref_nav`) làm nguồn.
+
+**Khắc phục (04/11/2026).** Đổi thành `stg_flex__nav`, `stg_flex__nav__rejected` và macro `stg_flex__nav_*`: file NAV do FLEX phát, `record_source` vốn là `flex.ref_nav`. Bảng landing giữ tên `ref_nav` theo Bảng 66. Khóa băm, hashdiff và `record_source` không đổi, nên raw vault không đổi nội dung; view cũ trong các database được xóa tay (dbt không tự xóa view mồ côi).
 
 ---
 

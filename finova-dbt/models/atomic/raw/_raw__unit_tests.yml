@@ -142,7 +142,7 @@ unit_tests:
       - input: this
         rows:
           - {account_hk: '\x01', business_date: '2026-05-06', hash_diff: '\xaa', nav: 100, ingested_ts: '2026-05-06 22:00:00+07'}
-      - input: ref('stg_ref__nav')
+      - input: ref('stg_flex__nav')
         rows:
           - {account_hk: '\x01', sat_account_nav_hd: '\xaa', tx_date: '2026-05-05', nav: 100, ingested_ts: '2026-05-07 22:00:00+07', event_ts: '2026-05-05 15:00:00+07', record_source: ref.ref_nav}
           - {account_hk: '\x01', sat_account_nav_hd: '\xaa', tx_date: '2026-05-06', nav: 100, ingested_ts: '2026-05-07 22:00:00+07', event_ts: '2026-05-06 15:00:00+07', record_source: ref.ref_nav}
@@ -157,7 +157,7 @@ unit_tests:
       vars: {lo_ts: "-infinity", hi_ts: "2026-12-31T00:00:00+07:00"}
       macros: {is_incremental: false}
     given:
-      - input: ref('stg_ref__nav')
+      - input: ref('stg_flex__nav')
         rows:
           - {account_hk: '\x01', sat_account_nav_hd: '\xaa', tx_date: '2026-05-06', nav: 100, ingested_ts: '2026-05-06 22:00:00+07', event_ts: '2026-05-06 15:00:00+07', record_source: ref.ref_nav}
           - {account_hk: '\x01', sat_account_nav_hd: '\xaa', tx_date: '2026-05-05', nav: 100, ingested_ts: '2026-05-07 22:00:00+07', event_ts: '2026-05-05 15:00:00+07', record_source: ref.ref_nav}

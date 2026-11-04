@@ -15,7 +15,7 @@
     ('stg_finova_app__events', 'broker_hk', 'hub_broker', 'broker_hk'),
     ('stg_manual__kpi', 'broker_hk', 'hub_broker', 'broker_hk'),
     ('stg_flex__reaflnk', 'account_hk', 'hub_account', 'account_hk'),
-    ('stg_ref__nav', 'account_hk', 'hub_account', 'account_hk'),
+    ('stg_flex__nav', 'account_hk', 'hub_account', 'account_hk'),
     ('stg_finova_app__events', 'account_hk', 'hub_account', 'account_hk'),
     ('stg_flex__regrp', 'regrp_hk', 'hub_regrp', 'regrp_hk'),
     ('stg_flex__regrp', 'parent_regrp_hk', 'hub_regrp', 'regrp_hk'),
@@ -32,7 +32,7 @@
     ('stg_flex__regrp', 'regrp_hk', 'sat_regrp_hd', 'sat_regrp__flex', none),
     ('stg_flex__reaflnk', 'reaflnk_hk', 'sat_reaflnk_hd', 'sat_reaflnk__flex', none),
     ('stg_manual__kpi', 'broker_hk', 'sat_broker_kpi_hd', 'sat_broker_kpi__manual', none),
-    ('stg_ref__nav', 'account_hk', 'sat_account_nav_hd', 'sat_account_nav_daily__flex', 'tx_date'),
+    ('stg_flex__nav', 'account_hk', 'sat_account_nav_hd', 'sat_account_nav_daily__flex', 'tx_date'),
 ] %}
 
 {% for stg, col, tgt, tgt_col in keys %}

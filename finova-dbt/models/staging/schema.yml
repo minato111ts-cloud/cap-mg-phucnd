@@ -99,7 +99,7 @@ models:
       - name: reason_code
         tests: [not_null]
 
-  - name: stg_ref__nav
+  - name: stg_flex__nav
     description: "NAV cuối ngày của tiểu khoản; satellite theo ngày trên hub tiểu khoản."
     columns:
       - name: account_hk
@@ -115,7 +115,7 @@ models:
       - name: event_ts
         tests: [not_null]
 
-  - name: stg_ref__nav__rejected
+  - name: stg_flex__nav__rejected
     description: "NAV bị loại (KEY_NULL, INVALID_DATE, KEY_FORMAT, INVALID_NUMERIC, CONFLICT_IN_BATCH, DUPLICATE_ROW)."
     columns:
       - name: reason_code

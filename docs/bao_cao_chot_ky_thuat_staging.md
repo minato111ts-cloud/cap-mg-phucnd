@@ -39,7 +39,7 @@ Tầng Staging đóng vai trò là cửa ngõ kiểm soát chất lượng dữ 
    - Bổ sung `nullif(upper(trim(parentid)), '')` vào `hashdiff`. Tránh mất dấu vết khi đơn vị thay đổi cấp cha trực thuộc.
 2. **`stg_flex__reaflnk`:**
    - Bổ sung `upper(trim(reacctno))` và `upper(trim(afacctno))` vào `hashdiff`. Đảm bảo nếu phân công đổi người môi giới hoặc đổi tiểu khoản thì phát hiện được ngay.
-3. **`stg_ref__nav`:**
+3. **`stg_flex__nav`:**
    - Bổ sung cột `hashdiff = dv_hash(['trim(nav)::numeric(20, 4)::text'])`. Đảm bảo khi một ngày giao dịch có bản điều chỉnh số liệu NAV thì Satellite ghi nhận phiên bản mới.
 4. **`stg_manual__kpi`:**
    - Chuẩn hóa số thập phân `replace(',', '.')::numeric(20,4)::text` trước khi băm `hashdiff`. Tránh việc `3.5` và `3.50` sinh 2 mã hash khác nhau. Bổ sung `trim(fullname)` vào hash.

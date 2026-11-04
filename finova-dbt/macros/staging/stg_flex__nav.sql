@@ -3,7 +3,7 @@
   khóa (account_hk, tx_date), không phải một hub riêng.
 #}
 
-{% macro stg_ref__nav_columns() -%}
+{% macro stg_flex__nav_columns() -%}
     bkcc_account, bk_account, account_hk,
     sat_account_nav_hd,
     tx_date, afacctno, nav,
@@ -11,7 +11,7 @@
 {%- endmacro %}
 
 
-{% macro stg_ref__nav_rows() -%}
+{% macro stg_flex__nav_rows() -%}
 with parsed as (
     select
         l.source_id, l.batch_id, l.ingested_ts, l.event_ts, l.record_hash, l.source_row_no,
