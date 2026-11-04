@@ -20,6 +20,7 @@ import hashlib
 import json
 import os
 import re
+import traceback
 import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -30,6 +31,8 @@ import psycopg2
 from psycopg2 import sql
 from psycopg2.extras import Json, execute_values
 import yaml
+
+from loader.error_log import log_error
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONTRACTS_DIR = REPO_ROOT / "contracts"
@@ -53,10 +56,10 @@ def normalize_token(s: str | None) -> str:
     return re.sub(r"[^a-z0-9]+", "_", without_accents).strip("_")
 
 
-def get_db_connection():
-    """Tạo kết nối PostgreSQL và chuyển sang role finova_loader theo quy ước ma trận quyền."""
+def get_db_connection(role: str = "finova_loader", autocommit: bool = False):
+    """Tạo kết nối PostgreSQL và chuyển sang role chức năng (mặc định finova_loader) theo ma trận quyền."""
     host = os.environ.get("CAP_PGHOST", "127.0.0.1")
-    port = int(os.environ.get("CAP_PGPORT", "5436"))  # REQ-ENV-07: container finova-pg16-dev nghe 127.0.0.1:5436
+    port = int(os.environ.get("CAP_PGPORT", "5432"))  # REQ-ENV-07: container finova-pg16-dev nghe 127.0.0.1:5436
     dbname = os.environ["CAP_DBNAME"]
     user = os.environ.get("CAP_PGUSER", "postgres")
     conn = psycopg2.connect(
@@ -66,9 +69,9 @@ def get_db_connection():
         user=user,
         password=os.environ["FINOVA_PG_PASSWORD"],
     )
-    conn.autocommit = False
+    conn.autocommit = autocommit
     with conn.cursor() as cur:
-        cur.execute("SET ROLE finova_loader;")
+        cur.execute(sql.SQL("SET ROLE {};").format(sql.Identifier(role)))
     return conn
 
 
@@ -426,16 +429,22 @@ def process_single_batch(
     source_id = contract["source_id"]
     file_path = base_dir / rel_path
 
-    def finish(status: str, reason_code: str | None, rows_loaded: int = 0, rows_rejected: int = 0) -> dict[str, Any]:
+    def finish(
+        status: str, reason_code: str | None, rows_loaded: int = 0, rows_rejected: int = 0, detail: str | None = None,
+    ) -> dict[str, Any]:
         if commit:
             conn.commit()
-        return {
+        result = {
             "batch_id": batch_id,
             "status": status,
             "reason_code": reason_code,
             "rows_loaded": rows_loaded,
             "rows_rejected": rows_rejected,
         }
+        if detail:
+            # mô tả lỗi cho ctrl.error_log (load_manifest_batches ghi), chỉ có khi lô bị từ chối
+            result["detail"] = detail
+        return result
 
     with conn.cursor() as cur:
         cur.execute("SET ROLE finova_loader;")
@@ -453,12 +462,13 @@ def process_single_batch(
         # 2. Kiểm tra tồn tại file và Checksum SHA-256
         if not file_path.exists():
             _log_batch(cur, manifest_row, "REJECTED_BATCH", "FILE_MISSING", row_count_read=0)
-            return finish("REJECTED_BATCH", "FILE_MISSING")
+            return finish("REJECTED_BATCH", "FILE_MISSING", detail=f"không thấy file {rel_path}")
 
         content_hash = compute_file_sha256(file_path)
         if content_hash != sha256_declared:
             _log_batch(cur, manifest_row, "REJECTED_BATCH", "SHA256_MISMATCH", content_hash=content_hash)
-            return finish("REJECTED_BATCH", "SHA256_MISMATCH")
+            return finish("REJECTED_BATCH", "SHA256_MISMATCH",
+                          detail=f"sha256 manifest khai {sha256_declared}, file tính được {content_hash}")
 
         # 3. Đọc dữ liệu và kiểm tra Số lượng dòng khai báo
         actual_headers, parsed_rows = read_file_records(
@@ -471,7 +481,8 @@ def process_single_batch(
                 cur, manifest_row, "REJECTED_BATCH", "ROWCOUNT_MISMATCH",
                 row_count_read=row_count_read, content_hash=content_hash,
             )
-            return finish("REJECTED_BATCH", "ROWCOUNT_MISMATCH")
+            return finish("REJECTED_BATCH", "ROWCOUNT_MISMATCH",
+                          detail=f"row_count manifest khai {row_count_declared}, file đếm được {row_count_read}")
 
         # 4. Kiểm tra gửi lặp nội dung byte-for-byte (TH-GUILAI / DUP_CONTENT): chỉ so với lô LOADED
         # gần nhất của bảng. Bản chụp quay về nội dung của một lô cũ hơn (A -> B -> A, vd regrp CAP-MG-0032
@@ -686,6 +697,29 @@ def recheck_dup_batches(
     return results
 
 
+def report_batch_errors(res: dict[str, Any], manifest_row: dict[str, str]) -> None:
+    """
+    Ghi lỗi của một lô vào ctrl.error_log: lô bị từ chối (ERROR) và lô có dòng sang ctrl.load_reject (WARN).
+    Gọi ở vòng nạp của load_manifest_batches, không gọi trong process_single_batch, để pytest gọi thẳng
+    process_single_batch trong giao dịch rollback không ghi sổ lỗi (bảng chỉ thêm dòng) của database thật.
+    """
+    file_path = manifest_row["file_path"].strip()
+    source_table = manifest_row["source_table"].strip()
+    if res["status"] == "REJECTED_BATCH":
+        log_error(
+            "loader", "check_file", res["reason_code"],
+            f"Lô {res['batch_id']} ({source_table}) bị từ chối cả lô: {res.get('detail', res['reason_code'])}",
+            object_name=file_path, batch_id=res["batch_id"],
+        )
+    if res["rows_rejected"]:
+        log_error(
+            "loader", "insert_landing", "LOAD_REJECT",
+            f"Lô {res['batch_id']} ({source_table}): {res['rows_rejected']} dòng không tính được event_ts, "
+            "không vào landing; chi tiết ở ctrl.load_reject",
+            severity="WARN", object_name=file_path, batch_id=res["batch_id"],
+        )
+
+
 def load_manifest_batches(
     base_dir: Path = DEFAULT_KIT_MG_DIR,
     contracts_dir: Path = DEFAULT_CONTRACTS_DIR,
@@ -723,10 +757,16 @@ def load_manifest_batches(
         ensure_landing_infrastructure(conn, contracts)
         if recheck_dup:
             try:
-                return recheck_dup_batches(conn, manifest_rows, base_dir, contracts, thresholds, excel_header_rows)
+                results = recheck_dup_batches(conn, manifest_rows, base_dir, contracts, thresholds, excel_header_rows)
             except Exception:
                 conn.rollback()
+                log_error("loader", "recheck_dup", "EXCEPTION", traceback.format_exc())
                 raise
+            # lô gửi lại có thể cùng batch_id: lấy dòng manifest sau cùng, đủ để biết file của lô
+            row_of = {r["batch_id"].strip(): r for r in manifest_rows}
+            for res in results:
+                report_batch_errors(res, row_of[res["batch_id"]])
+            return results
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT DISTINCT (detail->>'arrival_seq')::int FROM ctrl.batch_log WHERE detail ? 'arrival_seq';"
@@ -750,9 +790,13 @@ def load_manifest_batches(
                     thresholds=thresholds,
                 )
             except Exception:
-                # Lỗi giữa chừng: hủy toàn bộ lô (kể cả ALTER TABLE của schema drift) rồi dừng
+                # Lỗi giữa chừng: hủy toàn bộ lô (kể cả ALTER TABLE của schema drift), ghi lỗi rồi dừng.
+                # error_log dùng kết nối riêng nên dòng lỗi không bị rollback theo lô.
                 conn.rollback()
+                log_error("loader", "process_batch", "EXCEPTION", traceback.format_exc(),
+                          object_name=row["file_path"].strip(), batch_id=row["batch_id"].strip())
                 raise
+            report_batch_errors(res, row)
             results.append(res)
         return results
     finally:
