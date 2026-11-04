@@ -105,7 +105,7 @@ Vai trò của từng loại bảng:
 | Esat | Link nào đang hiệu lực, theo driving key (mỗi đơn vị một cha, mỗi môi giới một nhóm) | Driving key chuyển sang link khác: một dòng đóng link cũ, một dòng mở link mới |
 | Sts | Khóa còn hay đã biến khỏi bản chụp đầy đủ | Trạng thái ACTIVE/DELETED đổi |
 
-Business Vault đọc theo nhóm. Ví dụ, cây đơn vị tại ngày D dùng bốn bảng: cạnh lấy từ `link_regrp_parent`; esat chọn cạnh hiệu lực; sts bỏ đơn vị DELETED; satellite cho thuộc tính.
+Business Vault đọc qua view as-of, không đọc thẳng các bảng này. Ví dụ, cây đơn vị tại ngày D lấy cạnh từ `parentid` của `asof.sat_regrp__flex` (view đã bỏ đơn vị DELETED theo `sts_regrp__flex`). `link_regrp_parent` và esat mang cùng thông tin từ cùng staging; chúng ở lại raw vault cho GT-LNK-*, GT-ESAT-ONEACTIVE nhưng tầng sau không đọc (xem `docs/ky_thuat_asof_bv.md`).
 
 ## Luồng nạp
 

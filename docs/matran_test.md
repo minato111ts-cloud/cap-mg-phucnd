@@ -1,7 +1,7 @@
 # Ma trận test — CAP-MG (D-TEST)
 
-- **Cập nhật:** 02/11/2026, nhánh `feat/cap-mg-phucnd`
-- **Phạm vi:** loader (landing, ctrl), staging và raw vault. Business Vault trở đi bổ sung khi có model.
+- **Cập nhật:** 04/11/2026, nhánh `feat/cap-mg-phucnd`
+- **Phạm vi:** loader (landing, ctrl), staging, raw vault, as-of, Business Vault và Gold. Chưa có: TC-CAP-E2E (tầng đầu cuối).
 - **Cách chạy:** `uv run --env-file .env dbt build --selector cap_mg_staging --project-dir finova-dbt --profiles-dir finova-dbt` và `uv run --env-file .env pytest -q`. Raw vault: `python -m runner.run`, `dbt test --select test_type:unit`, và `RUN_PT_FULL=1 pytest -q tests/raw` (xem phần raw vault).
 - **Phép thử âm:** cố ý làm hỏng code hoặc dữ liệu để chứng minh test đỏ, rồi khôi phục. Phép thử cần sửa dữ liệu chạy trên bản sao `cap_mg_phucnd_negtest`, không đụng database thật. Cột "Nơi chạy" ghi *máy thật* (PostgreSQL 16 cục bộ, `uv run dbt`) hoặc *thay thế* (môi trường mô phỏng trước 02/11/2026, xem `docs/ky_thuat_landing_staging.md`).
 
@@ -108,7 +108,8 @@ Chạy bằng `dbt test --select test_type:unit` lúc phát triển. Runner khô
 | Mã | Test | Kiểm gì |
 |---|---|---|
 | PT-IDEMP | `test_pt_idemp_rerun_windows` | Chạy lại cửa sổ cuối 2 lần và cửa sổ `(-infinity, hi]` không full refresh: số dòng và md5 của 19 bảng không đổi |
-| PT-FULL | `test_pt_full_matches_daily` | Runner `--full-refresh` một cửa sổ cho cùng số dòng, md5 như chạy 19 ngày |
+| PT-FULL, GT-BV-REBUILD | `test_pt_full_matches_daily` | Runner `--full-refresh` (raw một cửa sổ, BV và Gold dựng lại từng ngày) cho cùng số dòng, md5 như chạy 19 ngày, ở 19 bảng raw, 4 bảng BV và 5 bảng Gold |
+| TC-CAP-MG-BACKDATE | `test_tc_cap_mg_backdate` | Phân công hiệu lực của từng ngày đọc lại sau khi nạp đủ mọi lô bằng kết quả chụp ngay sau lần chạy của ngày đó; có ít nhất một ngày mà điều biết sau này khác (test không xanh suông) |
 | Runner | `test_runner_daily_runs`, `test_runner_no_failed_run` | DB thử: đủ 19 lần chạy theo ngày, đều SUCCESS; mọi DB: không lần nào FAILED hay RUNNING |
 | DQ-VONG, sts | `test_sts_regrp_g7_deleted_at_cap_mg_0032` | sts_regrp chỉ có G7 DELETED ở `CAP-MG-0032`; G5/G6 bị loại ở `CAP-MG-0061` không bị xóa giả |
 | TH-TAICAUTRUC | `test_esat_regrp_parent_g4_switch` | G4: CN2 mở ở `CAP-MG-0001`; CN2 đóng và CN1 mở ở `CAP-MG-0051` |
@@ -116,10 +117,62 @@ Chạy bằng `dbt test --select test_type:unit` lúc phát triển. Runner khô
 | DEC-CAP-MG-BROKERKEY | `test_broker_code_reuse_versions` | BRK017: 1 khóa hub, 3 phiên bản hồ sơ (người cũ, nghỉ việc, người mới `BRK017:2026-05-11`) |
 | DEC-ELT-REJECT | `test_reject_count_matches_rejected_views` | `ctrl.reject_count` của các lần chạy theo ngày bằng số dòng thật của mọi view `__rejected` theo (lô, view, reason_code), mỗi lô ở đúng một lần; full refresh đếm lại đủ |
 | T-GUARD | `test_t_guard_blocks_replayed_batch` | Phép thử âm: chèn lô LOADED mang giờ 22/04 sau lần chạy cuối, thì lần sau ghi `BLOCKED_BY_GUARD`; lô có ở `ctrl.guard_block`; chạy lại vẫn chặn, `v_guard_open` gộp 2 lần chặn; `runner.guard list` in lô và lệnh full refresh |
-| T-GUARD | `test_t_guard_full_refresh_resolves_block` | Full refresh SUCCESS ghi `guard_resolution` FULL_REFRESH; lần sau không chặn; 19 bảng không đổi |
+| T-GUARD | `test_t_guard_full_refresh_resolves_block` | Full refresh SUCCESS ghi `guard_resolution` FULL_REFRESH; lần sau không chặn; raw, BV, Gold không đổi, riêng `dq_mg_daily` có thêm đúng dòng của lô giả (ngày 22/04, báo theo sổ nạp) |
 | T-GUARD | `test_t_guard_accept_lets_run_continue` | ACCEPTED không có lý do bị từ chối; có lý do thì lần sau SUCCESS |
 
-## Kết quả lần chạy gần nhất (máy thật, 03/11/2026)
+## As-of: pytest (`tests/asof/test_asof.py`)
+
+View đọc cutoff từ GUC của phiên; dbt test không có hook đặt GUC trên connection của test nên dùng pytest (AB-08). Chỉ đọc, chạy trên `CAP_DBNAME`. Phép thử âm chạy trên `cap_mg_phucnd_negtest` ngày 03/11/2026, mỗi phép sửa tạm một chỗ rồi khôi phục.
+
+| Mã | Test | Kiểm gì | Phép thử âm | Kết quả |
+|---|---|---|---|---|
+| TC-SLV-NOCUTOFF | `test_tc_slv_nocutoff` (8 view) | Phiên chưa đặt cutoff, hoặc đặt rồi xóa thành chuỗi rỗng: đọc view báo lỗi | `asof.cutoff()` trả `'infinity'` thay vì `raise` | Đỏ 8/8 view |
+| PT-ASOF-SINGLE | `test_pt_asof_single` | 19 ngày × 8 view: số dòng = số khóa (khóa và ngày với NAV) | Bỏ `distinct on` trong `asof_latest` | Đỏ |
+| PT-NOFUTURE | `test_pt_nofuture` | 19 ngày × 8 view: không dòng nào có `ingested_ts` sau cutoff(D) | Bỏ điều kiện `<= asof.cutoff()` trong `asof_latest`, `asof_known` | Đỏ |
+| TC-CAP-MG-FUTUREEFF | `test_tc_cap_mg_futureeff` | Mọi phân công hiệu lực tại D có `fr_date <= D <= to_date`; dữ liệu có phân công đã biết mà chưa tới hiệu lực (08/05: 15) | Theo đề: `esat_reaflnk__flex` lọc theo `ingested_ts` thay vì FRDATE | Đỏ ở 10 ngày (04/05 → 15/05): 08/05 có 15 phân công `FRDATE > D`; các ngày đó còn có 13–35 phân công đã hết hạn |
+| TC-CAP-MG-BACKDATE | `tests/raw`: `test_tc_cap_mg_backdate` | Xem mục Raw vault: pytest | Theo đề: dùng phân công mới nhất cho mọi ngày (bỏ `<= cutoff` trong `asof_latest`), cùng logic so với lần dựng đầu | 14/19 ngày lệch (17/04 → 08/05); khôi phục thì khớp |
+
+## Business Vault (`finova-dbt/models/atomic/bv/_bv__models.yml`, `finova-dbt/tests/bv/`, tag `dv_bv`)
+
+| Mã | Test | Mức | Kiểm gì | Phép thử âm | Kết quả |
+|---|---|---|---|---|---|
+| GT-BV-PTR | `test_bv_ptr.sql` | error | Con trỏ khác NULL của 2 PIT có phiên bản thật trong satellite; `ingested_ts` của con trỏ `<= cutoff_ts` (suy từ `as_of_date`, độc lập với GUC) | `asof_session` đặt cutoff muộn hơn 1 ngày, D = 05/05 | Đỏ 19 (con trỏ chỉ tiêu trỏ bản v2 nạp 06/05 16:30) |
+| GT-BV-SHAPE | `dv_shape` × 4 model | error | Chỉ có các cột cho phép | Thêm cột `nav` vào `pit_account_daily` | Đỏ 1 cột |
+| GT-BV-REBUILD | `tests/raw`: `test_pt_full_matches_daily` | error | Xem mục Raw vault: pytest | Bỏ `bv_day_delete` khỏi pre_hook rồi dựng lại 05/05 | Số dòng 4 bảng nhân đôi (24 → 48, 200 → 400, 200 → 400, 25 → 50); khôi phục thì md5 khớp |
+| TC-CAP-MG-ONEBROKER | `tc_cap_mg_onebroker` (`dv_unique_combination` trên `bridge_account_broker`) | error | Mỗi (as_of_date, tiểu khoản) tối đa một môi giới | Theo đề: bỏ quy tắc DEC-OVERLAP (giữ mọi ứng viên), D = 05/05 | Đỏ 3 tiểu khoản |
+| TC-CAP-MG-TREE | `test_tc_cap_mg_tree.sql` | error | Mỗi ngày đúng một gốc; mọi đơn vị trong `bridge_regrp_ancestor` có gốc là cấp trên; không đơn vị nào là cấp trên của chính nó | Theo đề: nạp cây có vòng, không lọc (bỏ `CYCLE_DETECTED` ở staging, dựng lại view staging và raw), D = 06/05 | Đỏ 4 (G5, G6: `SELF_ANCESTOR`, `NO_PATH_TO_ROOT`) |
+
+Ghi chú phép thử TREE: lần đầu chỉ dựng lại raw nên view staging trong DB vẫn là bản có lọc vòng, test xanh; phải `dbt run --selector cap_mg_staging` trước. DQ-MOCOI không làm TREE đỏ (DEC-CAP-MG-ORPHAN, phương án D): nhánh mồ côi không có môi giới (G7 → CN9, 23/04 và 24/04) không vào cây; nhánh có môi giới treo vào nút ảo `UNKNOWN` dưới gốc. Cảnh báo vẫn ở `test_stg_regrp_parent_missing`. Tình huống có môi giới không có trong dữ liệu đề, kiểm tay trên `negtest` (chèn tạm raw): TREE xanh 6 ngày, nhánh `G8>G7>UNKNOWN>HO`, sửa cha thì nối về `CN1` từ ngày có bản sửa (bảng ở `ky_thuat_asof_bv.md` AB-06). Sau thay đổi, phép thử âm TREE vẫn đỏ 4. `dv_shape` của `bridge_regrp_ancestor` thêm cột `is_orphan_branch`.
+
+## Gold (`finova-dbt/models/gold/_gold__models.yml`, `finova-dbt/tests/gold/`, tag `gold`; `tests/gold/`)
+
+Phép thử âm chạy trên `cap_mg_phucnd_negtest` bằng script sửa tạm code rồi khôi phục; sau cùng runner full refresh `negtest`. Chi tiết ở `docs/ky_thuat_gold.md` GD-07.
+
+| Mã | Test | Mức | Kiểm gì | Phép thử âm | Kết quả |
+|---|---|---|---|---|---|
+| Grain (Bảng 24) | `dv_unique_combination` × 5 bảng | error | Không trùng grain của Bảng 71 và Bảng 75 | Bỏ `distinct on (account_hk)` ở tập tiểu khoản của `dim_account_care_daily`, D = 05/05 | Đỏ 200 |
+| GT-STG-PII (Gold không có cột định danh) | `dv_shape` × 5 bảng | error | Chỉ có các cột cho phép | Thêm `email_masked` vào `dim_broker_org_daily` | Đỏ 1 cột |
+| Tổng khớp vault (Bảng 24) | `test_gold_vault_totals.sql` | error | Số tiểu khoản có phân công = số dòng `bridge_account_broker`; Σ `n_accounts` = số tiểu khoản có `broker_key`; Σ `book_nav` = Σ NAV ngày D qua con trỏ PIT trên satellite raw | `book_nav` bỏ con trỏ PIT, cộng NAV mọi ngày ≤ D, D = 05/05 | Đỏ 2 (ACCOUNTS, BOOKNAV) |
+| TC-CAP-MG-ROLLUP | `test_tc_cap_mg_rollup.sql` | error | Tổng chi nhánh (theo `branch_id` của Gold) = tổng các nhóm thuộc chi nhánh theo `bridge_regrp_ancestor` của D; so cả tử, mẫu CAP-MG-COVER30 | Theo đề: dùng cây ngày cuối (15/05) cho D = 29/04 | Đỏ 2 (CN1, CN2: G4 đổi chi nhánh) |
+| TC-CAP-MG-RLS | `tests/gold/test_rls.py` (5 test) | pytest | Role `finova_app` với từng người xem trong `org_roles` thấy đúng tập tiểu khoản tính độc lập từ BV và raw, ở mọi ngày; `sec_visibility_daily` chỉ dòng của mình; môi giới thấy ở `dim_broker_org_daily`, `met_broker_daily` đúng phạm vi; không đặt người xem, đặt rỗng hoặc người xem lạ thì không thấy dòng nào; test tự kiểm mỗi người xem có tiểu khoản phải thấy | Theo đề: cho BRK003 xem tiểu khoản của BRK009, D = 11/05 | Đỏ (thừa `9994000001…`); khôi phục xanh |
+| D-DQ | `test_gold_dq_recon.sql` | error | Lô LOADED: `rows_landing = rows_valid + rows_rejected`; `rows_landing` = `batch_log.rows_loaded`; mỗi lô có ở đúng một ngày (lô T-GUARD chưa full refresh: tối đa một) | Bỏ dòng `DUPLICATE_EVENT` của `__rejected`, D = 05/05 | Đỏ 1 (lô `CAP-MG-0060`) |
+| QT-DAY-REBUILD | grain, PT-FULL | error | Dựng lại ngày D không nhân dòng | Bỏ `asof_day_delete` khỏi pre_hook của Gold, dựng lại 05/05 | Đỏ (24 môi giới, 5 lô trùng) |
+
+Câu hỏi kiểm (Bảng 74): 8 file SQL ở `evidence/probes/`, `python -m runner.probes` ghi `evidence/probes.csv` (11 dòng).
+
+## Kết quả lần chạy gần nhất (máy thật, 04/11/2026, có Gold)
+
+- `runner.run --full-refresh --skip-load` trên `cap_mg_phucnd`: SUCCESS, khoảng 2 phút 45 giây (raw một cửa sổ, view as-of, BV và Gold 19 ngày); mỗi ngày `cap_mg_bv` PASS 13, `cap_mg_gold` PASS 20, ERROR 0.
+- `RUN_PT_FULL=1 pytest -q tests`: 47 passed, 14 phút 54 giây (16 loader, 1 TC-NEN-HASH-TZ, 13 raw vault gồm PT-FULL so cả 5 bảng Gold, GT-BV-REBUILD, TC-CAP-MG-BACKDATE, 12 as-of, 5 TC-CAP-MG-RLS).
+- `check_khung.py --repo . --de MG --dbt`: 14 ĐẠT, 1 KHÔNG ĐẠT (KHUNG-DBT-PHIENBAN), 6 BỎ QUA. Nguyên nhân là môi trường: Windows Application Control chặn file `.venv/Scripts/dbt.exe` (`os error 4551`) từ chiều 04/11, nên `uv run dbt --version` không chạy, kéo 6 mục dbt sau bị bỏ qua. Gọi bằng `python -m dbt.cli.main` vẫn chạy (dbt-core 1.12.5); `dbt ls` chạy được cho 7 selector (khung 1, staging 74, raw 179, bv 11, asof 8, gold 18, all 291 node). Sáng 04/11, trước khi bị chặn, cùng repo (chưa có Gold) đạt 22/22.
+
+## Kết quả lần chạy trước (máy thật, 03/11/2026, đến Business Vault)
+
+- `runner.run --full-refresh --skip-load` trên `cap_mg_phucnd`: SUCCESS, 1 phút 25 giây (raw một cửa sổ, view as-of, BV 19 ngày); mỗi lần `cap_mg_bv`: PASS 13, ERROR 0.
+- `RUN_PT_FULL=1 pytest -q tests`: 42 passed, 10 phút 41 giây.
+- `check_khung.py --repo . --de MG --dbt`: 22 ĐẠT sau khi sửa câu chữ docstring `loader/error_log.py` bị KHUNG-BIMAT nhận nhầm là mật khẩu.
+
+## Kết quả lần chạy trước (máy thật, 03/11/2026, trước khi có as-of và BV)
 
 - `dbt build --selector cap_mg_staging`: PASS 71, WARN 1 (DQ-MOCOI), ERROR 0.
 - `dbt build --selector cap_mg_raw` (full refresh, cửa sổ `(-infinity, 15/05]`): PASS 178, WARN 1 (GT-HUB-NOMASTER: CN9), ERROR 0.
