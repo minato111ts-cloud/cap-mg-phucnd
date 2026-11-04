@@ -58,7 +58,10 @@ selectors:
       value: gold
 
   - name: cap_mg_all
-    description: "Toàn bộ pipeline CAP-MG"
+    description: >
+      Toàn bộ pipeline CAP-MG cho một ngày D. Không gồm unit test: unit test giả lập {{ this }} của model incremental cần
+      bảng đã có để lấy kiểu cột, nên trên schema trống sẽ lỗi; chạy riêng bằng dbt test --select test_type:unit sau
+      khi đã dựng (README).
     definition:
       union:
         - method: tag
@@ -73,3 +76,6 @@ selectors:
           value: gold
         - method: path
           value: tests/khung
+        - exclude:
+            - method: resource_type
+              value: unit_test
