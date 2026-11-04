@@ -16,7 +16,7 @@ Với từng ngày giao dịch D (ref_calendar.csv):
      lo_ts của lần sau không đổi.
 Mọi lỗi (T-GUARD chặn, model/test dbt error, fail, warn, exception) ghi vào ctrl.error_log; dbt không ghi file log.
 
-Chạy: uv run --env-file .env python -m runner.run [--from D] [--to D] [--full-refresh] [--skip-load]
+Chạy: uv run --env-file .env python -m runner.run [--from D] [--to D] [--full-refresh] [--skip-load] [--evidence-dir DIR]
 Cần setup/ctrl.sql, setup/ctrl_runner.sql và setup/ctrl_log.sql.
 """
 
@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import shutil
 import sys
 import traceback
 from datetime import date, datetime, timedelta, timezone
@@ -56,6 +57,11 @@ ASOF_SCHEMA = "asof"
 ASOF_VIEWS = sorted(p.stem.removeprefix("asof__") for p in (DBT_DIR / "models" / "asof").glob("*.sql"))
 BV_SELECTOR = "cap_mg_bv"
 GOLD_SELECTOR = "cap_mg_gold"
+
+# D-BANGCHUNG: --evidence-dir chép run_results.json sau mỗi lần gọi dbt (<as_of_date>_<selector>.json) và, khi
+# SUCCESS, ghi row_counts.csv: số dòng mỗi bảng, view theo tầng, kèm md5 nội dung bảng atomic, mart để so giữa các lần
+EVIDENCE_DIR: Path | None = None
+EVIDENCE_SCHEMAS = ["landing", "staging", "atomic", "asof", "mart"]
 
 # Mốc thời gian dạng ISO-8601 UTC, không phụ thuộc TimeZone/DateStyle của phiên; '-infinity' giữ nguyên chữ
 # (psycopg2 đổi -infinity thành datetime.min, ghi lại sổ sẽ thành năm 0001)
@@ -173,6 +179,9 @@ def run_dbt(selector: str, dbt_vars: dict[str, str] | None, full_refresh: bool, 
     if full_refresh:
         args.append("--full-refresh")
     res = dbtRunner().invoke(args)
+    if EVIDENCE_DIR is not None and (DBT_DIR / "target" / "run_results.json").exists():
+        day = (dbt_vars or {}).get("as_of_date", "no-vars")
+        shutil.copyfile(DBT_DIR / "target" / "run_results.json", EVIDENCE_DIR / f"{day}_{selector}.json")
     if res.exception is not None:
         log_error("dbt", selector, "DBT_EXCEPTION", str(res.exception), run_id=run_id)
         return False, f"{selector}: {res.exception}"
@@ -194,6 +203,33 @@ def run_dbt(selector: str, dbt_vars: dict[str, str] | None, full_refresh: bool, 
     if res.success:
         return True, ""
     return False, f"{selector}: " + "; ".join(failed[:10]) + " (chi tiết ở ctrl.error_log)"
+
+
+def write_row_counts(conn, d: date, path: Path) -> None:
+    """Số dòng của mọi bảng, view thuộc EVIDENCE_SCHEMAS (view as-of đọc với cutoff(D)); md5 nội dung cho atomic, mart."""
+    with conn.cursor() as cur:
+        cur.execute("set role finova_dbt")
+        cur.execute("set timezone = 'UTC'")
+        cur.execute("select set_config('finova.asof_date', %s, false), set_config('finova.asof_cutoff', %s, false)",
+                    (d.isoformat(), cutoff_of(d).isoformat()))
+        cur.execute("""
+            select table_schema, table_name from information_schema.tables
+            where table_schema = any(%s) order by array_position(%s, table_schema::text), table_name
+        """, (EVIDENCE_SCHEMAS, EVIDENCE_SCHEMAS))
+        objects = cur.fetchall()
+        rows = []
+        for schema, name in objects:
+            fq = f'"{schema}"."{name}"'
+            if schema in ("atomic", "mart"):
+                cur.execute(f"select count(*), md5(coalesce(string_agg(t::text, '|' order by t::text), '')) from {fq} t")
+            else:
+                cur.execute(f"select count(*), null from {fq}")
+            n, digest = cur.fetchone()
+            rows.append([schema, name, n, digest or ""])
+    with path.open("w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["schema", "table", "rows", "md5"])
+        w.writerows(rows)
 
 
 def missing_asof_views(conn) -> list[str]:
@@ -245,6 +281,8 @@ def run_day(d: date, full_refresh: bool = False, skip_load: bool = False) -> str
                     (status, error_msg, run_id),
                 )
             conn.commit()
+            if status == "SUCCESS" and EVIDENCE_DIR is not None:
+                write_row_counts(conn, d, EVIDENCE_DIR / "row_counts.csv")
             print(f"[runner] {d} run_id={run_id} lo={lo_ts} hi={hi_ts} -> {status}"
                   + (f" ({error_msg})" if error_msg else ""))
             return status
@@ -298,7 +336,14 @@ def main() -> None:
                         help="Một lần chạy cho ngày cuối với lo_ts = -infinity: dựng lại raw vault từ đầu (PT-FULL), "
                              "dựng lại Business Vault và Gold cho mọi ngày giao dịch tới ngày cuối")
     parser.add_argument("--skip-load", action="store_true", help="Không gọi loader (landing đã nạp sẵn)")
+    parser.add_argument("--evidence-dir", type=Path, default=None,
+                        help="Thư mục bằng chứng: chép run_results.json của mỗi lần gọi dbt, ghi row_counts.csv khi SUCCESS")
     args = parser.parse_args()
+
+    global EVIDENCE_DIR
+    if args.evidence_dir is not None:
+        args.evidence_dir.mkdir(parents=True, exist_ok=True)
+        EVIDENCE_DIR = args.evidence_dir
 
     days = trading_days(args.d_from, args.d_to)
     if not days:
