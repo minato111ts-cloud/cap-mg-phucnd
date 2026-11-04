@@ -25,6 +25,7 @@ Capstone dbt Finova (`FNV-CAP-DBT v1.5`), đề `CAP-MG`. Luồng: gói đề `i
    ```powershell
    uv sync
    ```
+   Máy bật Application Control có thể chặn cả `.venv/Scripts/dbt.exe` (`os error 4551`). Khi đó gọi dbt qua Python, cùng bản đã ghim: `uv run python -c "from dbt.cli.main import cli; cli()" <lệnh dbt>` thay cho `uv run dbt <lệnh dbt>`; `check_khung.py` nhận lệnh này qua `--dbt-cmd`. Runner gọi dbt trong tiến trình Python nên không bị ảnh hưởng.
 2. **Biến môi trường.** Chép `.env.example` thành `.env` (đã nằm trong `.gitignore`) và điền `FINOVA_PG_PASSWORD`, `CAP_DBNAME`. Mặc định của repo là cổng `5436` (container `finova-pg16-dev`, REQ-ENV-07); máy chạy PostgreSQL ở cổng khác thì đặt `CAP_PGPORT` trong `.env`, không sửa mặc định trong repo. Loader không tự đọc `.env`, nên mọi lệnh chạy qua `uv run --env-file .env`.
 3. **dbt profile.** Chép `finova-dbt/profiles.example.yml` thành `finova-dbt/profiles.yml` (đã nằm trong `.gitignore`).
 4. **Database.** `python -m runner.init_db` tạo database `CAP_DBNAME` nếu chưa có, rồi chạy `setup/bootstrap.sql`, `setup/ctrl.sql`, `setup/ctrl_runner.sql`, `setup/ctrl_log.sql` bằng user `postgres`. Cả bốn file chạy lại nhiều lần không lỗi, nên lệnh này cũng vậy (chạy bằng `psql` từng file cũng được).
