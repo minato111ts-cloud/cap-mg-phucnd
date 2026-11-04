@@ -15,7 +15,8 @@ Capstone dbt Finova (`FNV-CAP-DBT v1.5`), đề `CAP-MG`. Luồng: gói đề `i
 | `runner/probes.py` | Chạy các file SQL ở `evidence/probes/`, ghi đáp án câu hỏi kiểm vào `evidence/probes.csv` |
 | `finova-dbt/` | Project dbt `cap_mg`; selector ở `selectors.yml` |
 | `tests/` | pytest cho loader, staging, raw vault, as-of, Business Vault và RLS của Gold |
-| `evidence/` | `probes/*.sql` (mỗi câu hỏi kiểm một file SQL thuần), `probes.csv` (D-BANGCHUNG) |
+| `evidence/` | D-BANGCHUNG: `probes/*.sql` (mỗi câu hỏi kiểm một file SQL thuần), `probes.csv`; `run_daily/`, `run_rerun/`, `run_full_refresh/` (run_results.json của từng lần gọi dbt, `row_counts.csv`), `row_counts_compare.csv` |
+| `runner/init_db.py`, `runner/evidence.py` | Dựng database từ các file setup; thu bằng chứng ba lần chạy trên database riêng `<CAP_DBNAME>_evidence` |
 | `docs/` | Khảo sát, quyết định, sổ kỹ thuật, ma trận test |
 
 ## Chuẩn bị (một lần)
@@ -26,7 +27,23 @@ Capstone dbt Finova (`FNV-CAP-DBT v1.5`), đề `CAP-MG`. Luồng: gói đề `i
    ```
 2. **Biến môi trường.** Chép `.env.example` thành `.env` (đã nằm trong `.gitignore`) và điền `FINOVA_PG_PASSWORD`, `CAP_DBNAME`. Mặc định của repo là cổng `5436` (container `finova-pg16-dev`, REQ-ENV-07); máy chạy PostgreSQL ở cổng khác thì đặt `CAP_PGPORT` trong `.env`, không sửa mặc định trong repo. Loader không tự đọc `.env`, nên mọi lệnh chạy qua `uv run --env-file .env`.
 3. **dbt profile.** Chép `finova-dbt/profiles.example.yml` thành `finova-dbt/profiles.yml` (đã nằm trong `.gitignore`).
-4. **Database.** Tạo database `CAP_DBNAME`, chạy `setup/bootstrap.sql`, `setup/ctrl.sql`, `setup/ctrl_runner.sql` rồi `setup/ctrl_log.sql` bằng user `postgres`. Cả bốn file chạy lại nhiều lần không lỗi; database đã có `ctrl.sql` thì chỉ cần chạy thêm `ctrl_runner.sql` và `ctrl_log.sql`.
+4. **Database.** `python -m runner.init_db` tạo database `CAP_DBNAME` nếu chưa có, rồi chạy `setup/bootstrap.sql`, `setup/ctrl.sql`, `setup/ctrl_runner.sql`, `setup/ctrl_log.sql` bằng user `postgres`. Cả bốn file chạy lại nhiều lần không lỗi, nên lệnh này cũng vậy (chạy bằng `psql` từng file cũng được).
+
+## Dựng lại trong 5 lệnh (D-RUNBOOK)
+
+Sau phần chuẩn bị mục 1–3 (Python, `.env`, `profiles.yml`), từ database chưa có:
+
+```powershell
+uv sync                                                    # 1. môi trường ghim phiên bản
+uv run --env-file .env python -m runner.init_db            # 2. database, schema, role, năm bảng ctrl
+uv run --env-file .env python -m runner.run                # 3. từng ngày giao dịch 17/04 -> 15/05: loader tới cutoff(D), staging, raw vault, as-of, Business Vault, Gold
+uv run --env-file .env python -m runner.probes             # 4. đáp án câu hỏi kiểm -> evidence/probes.csv
+$env:RUN_PT_FULL = "1"; uv run --env-file .env pytest -q tests   # 5. kiểm: loader, staging, raw vault (PT-FULL, PT-IDEMP, T-GUARD), as-of, RLS
+```
+
+Thu bằng chứng (D-BANGCHUNG, khoảng 10 phút, database riêng `<CAP_DBNAME>_evidence` dựng lại từ đầu): `uv run --env-file .env python -m runner.evidence` chạy lịch tới 14/05, rồi lần chạy theo ngày 15/05, chạy lại 15/05, full refresh, ghi vào `evidence/run_*/` và so số dòng, md5 ở `evidence/row_counts_compare.csv` (PT-IDEMP, PT-FULL). Runner nhận thêm `--evidence-dir DIR` để ghi bằng chứng cho một lần chạy bất kỳ.
+
+Kiểm D-DBT riêng (schema dbt trống, landing đã nạp): `dbt build --selector cap_mg_all --vars '{lo_ts: "-infinity", hi_ts: "2026-05-15T23:59:59+07:00", as_of_date: "2026-05-15"}'` dựng mọi tầng cho một ngày; `cap_mg_all` không gồm unit test (cần bảng incremental đã có), chạy sau bằng bước 5 ở mục dưới.
 
 ## Chạy
 
@@ -84,7 +101,7 @@ select broker_id, fr_date, to_date from asof.esat_reaflnk__flex where afacctno =
 
 Runner chạy cho database trống hoặc tiếp tục từ lần SUCCESS cuối trong `ctrl.batch_run`. Database đã nạp landing bằng loader trước KT-22 (thiếu `CAP-MG-0032`, `CAP-MG-0066`) thì không cần dựng lại: chạy `python -m loader.load --recheck-dup` rồi `python -m runner.run --full-refresh --skip-load` (mục "Nạp lại và nạp bù").
 
-Kết quả mong đợi trên gói đề (02/11/2026): loader 63 lô `LOADED` (5.959 dòng) và 41 lô `SKIPPED_DUP`; `dbt build` staging PASS 71, WARN 1 (DQ-MOCOI, G7 → CN9), ERROR 0; raw vault 19 bảng, WARN 1 (GT-HUB-NOMASTER, CN9); runner 19 lần chạy SUCCESS; 9 unit test PASS; 8 view as-of; Business Vault 4 bảng × 19 ngày, mỗi lần `cap_mg_bv` PASS 13; Gold 5 bảng × 19 ngày, mỗi lần `cap_mg_gold` PASS 20; `RUN_PT_FULL=1 pytest -q tests` 47 passed; `runner.probes` 11 dòng đáp án ở `evidence/probes.csv`.
+Kết quả mong đợi trên gói đề (02/11/2026): loader 63 lô `LOADED` (5.959 dòng) và 41 lô `SKIPPED_DUP`; `dbt build` staging PASS 71, WARN 1 (DQ-MOCOI, G7 → CN9), ERROR 0; raw vault 19 bảng, WARN 1 (GT-HUB-NOMASTER, CN9); runner 19 lần chạy SUCCESS; 11 unit test PASS; 8 view as-of; Business Vault 4 bảng × 19 ngày, mỗi lần `cap_mg_bv` PASS 13; Gold 5 bảng × 19 ngày, mỗi lần `cap_mg_gold` PASS 20; `RUN_PT_FULL=1 pytest -q tests` 50 passed; `cap_mg_all` từ schema trống PASS 291, WARN 2; `runner.evidence` lệch 0 giữa ba lần chạy; `runner.probes` 11 dòng đáp án ở `evidence/probes.csv`.
 
 ## Tra lỗi
 

@@ -1,7 +1,7 @@
 # Ma trận test — CAP-MG (D-TEST)
 
 - **Cập nhật:** 04/11/2026, nhánh `feat/cap-mg-phucnd`
-- **Phạm vi:** loader (landing, ctrl), staging, raw vault, as-of, Business Vault và Gold. Chưa có: TC-CAP-E2E (tầng đầu cuối).
+- **Phạm vi:** loader (landing, ctrl), staging, raw vault, as-of, Business Vault, Gold và đầu cuối (TC-CAP-E2E).
 - **Cách chạy:** `uv run --env-file .env dbt build --selector cap_mg_staging --project-dir finova-dbt --profiles-dir finova-dbt` và `uv run --env-file .env pytest -q`. Raw vault: `python -m runner.run`, `dbt test --select test_type:unit`, và `RUN_PT_FULL=1 pytest -q tests/raw` (xem phần raw vault).
 - **Phép thử âm:** cố ý làm hỏng code hoặc dữ liệu để chứng minh test đỏ, rồi khôi phục. Phép thử cần sửa dữ liệu chạy trên bản sao `cap_mg_phucnd_negtest`, không đụng database thật. Cột "Nơi chạy" ghi *máy thật* (PostgreSQL 16 cục bộ, `uv run dbt`) hoặc *thay thế* (môi trường mô phỏng trước 02/11/2026, xem `docs/ky_thuat_landing_staging.md`).
 
@@ -49,6 +49,7 @@
 | `test_tc_cap_mg_excel_real_file_headers` / `..._negative_single_header_row` | TC-CAP-MG-EXCEL: tiêu đề hai dòng của file thật; phép thử âm một dòng tiêu đề |
 | `test_event_ts_future_guard_uses_threshold` | Quy tắc `event_ts` tương lai đọc ngưỡng từ `thresholds.yaml` |
 | `test_thresholds_in_sync_with_dbt_vars` | INV-M6: ngưỡng ở `dbt_project.yml` bằng `thresholds.yaml` |
+| `tests/loader/test_ingested_ts.py::test_tc_cap_ldz_ingested_ts_equals_commit_ts` | Bảng 24 (landing): mỗi lô LOADED có `batch_log.ingested_ts` bằng `commit_ts` của đúng dòng manifest đã nạp (theo `arrival_seq`), và mọi dòng landing của lô mang đúng giá trị đó. Phép thử âm (`negtest`): lệch `ingested_ts` một dòng `landing.ref_nav` 1 giây -> đỏ ở `CAP-MG-0004` |
 
 ## Raw vault: test chung theo loại bảng (`finova-dbt/models/atomic/raw/_raw__models.yml`)
 
@@ -160,10 +161,20 @@ Phép thử âm chạy trên `cap_mg_phucnd_negtest` bằng script sửa tạm c
 
 Câu hỏi kiểm (Bảng 74): 8 file SQL ở `evidence/probes/`, `python -m runner.probes` ghi `evidence/probes.csv` (11 dòng).
 
+## Đầu cuối (`tests/e2e/test_e2e.py`)
+
+| Mã | Test | Kiểm gì | Phép thử âm (`negtest`, sửa dữ liệu rồi trả lại) | Kết quả |
+|---|---|---|---|---|
+| TC-CAP-E2E | `test_tc_cap_e2e_assignment_lineage` | Mọi tiểu khoản có phân công ở `dim_account_care_daily`, mọi ngày: lần được qua `bridge_account_broker` → `asof.esat_reaflnk__flex` (GUC của D) → `sat_reaflnk__flex` (cùng `ingested_ts`, `hash_diff`) → `stg_flex__reaflnk` → đúng dòng `landing.flex_reaflnk` (AUTOID, REACCTNO, AFACCTNO khớp); báo mắt xích đứt theo tầng | Đổi AUTOID một dòng `landing.flex_reaflnk` (lô `CAP-MG-0003`) | Đỏ: `9994000005` đứt ở RAW->STAGING mọi ngày |
+| TC-CAP-E2E | `test_tc_cap_e2e_booknav_from_landing` | CAP-MG-BOOKNAV mỗi môi giới, mỗi ngày = Σ NAV lần ngược từ PIT qua raw, `stg_flex__nav` tới dòng `landing.ref_nav` | Đổi NAV ở `landing.ref_nav` của `9994000001` ngày 05/05 (staging ra NAV, hashdiff mới nên chuỗi đứt) | Đỏ: BRK003 ngày 05/05 lệch đúng NAV tiểu khoản đó. Lần đầu sửa NAV ở raw thì xanh suông: `hash_diff` không đổi và Gold đã dựng từ trước, nên hai vế cùng không bị tác động |
+
 ## Kết quả lần chạy gần nhất (máy thật, 04/11/2026, có Gold)
 
 - `runner.run --full-refresh --skip-load` trên `cap_mg_phucnd`: SUCCESS, khoảng 2 phút 45 giây (raw một cửa sổ, view as-of, BV và Gold 19 ngày); mỗi ngày `cap_mg_bv` PASS 13, `cap_mg_gold` PASS 20, ERROR 0.
-- `RUN_PT_FULL=1 pytest -q tests`: 47 passed, 14 phút 54 giây (16 loader, 1 TC-NEN-HASH-TZ, 13 raw vault gồm PT-FULL so cả 5 bảng Gold, GT-BV-REBUILD, TC-CAP-MG-BACKDATE, 12 as-of, 5 TC-CAP-MG-RLS).
+- `RUN_PT_FULL=1 pytest -q tests`: 50 passed, 14 phút 50 giây (17 loader gồm `ingested_ts` bằng `commit_ts`, 1 TC-NEN-HASH-TZ, 13 raw vault gồm PT-FULL so cả 5 bảng Gold, GT-BV-REBUILD, TC-CAP-MG-BACKDATE, 12 as-of, 5 TC-CAP-MG-RLS, 2 TC-CAP-E2E).
+- D-DBT: `dbt build --selector cap_mg_all` trên database mới (landing đã nạp, schema dbt trống), D = 15/05: PASS 291, WARN 2 (DQ-MOCOI, GT-HUB-NOMASTER), ERROR 0; sau đó `dbt test --select test_type:unit`: 11 PASS.
+- D-RUNBOOK: trên database mới, `runner.init_db` rồi `runner.run` cho 19 lần chạy SUCCESS trong 6 phút 24 giây; `runner.probes` ra đúng `evidence/probes.csv` như DB chính.
+- D-BANGCHUNG (`runner.evidence`, database `_evidence`): 59 bảng, view của landing, staging, atomic, asof, mart; chạy lại 15/05 và full refresh khớp lần chạy theo ngày ở mọi bảng (số dòng và md5), lệch 0. Tổng dòng mỗi tầng: landing 5.959, staging 6.027, atomic 14.090, asof (cutoff 15/05) 5.157, mart 7.342.
 - `check_khung.py --repo . --de MG --dbt`: 14 ĐẠT, 1 KHÔNG ĐẠT (KHUNG-DBT-PHIENBAN), 6 BỎ QUA. Nguyên nhân là môi trường: Windows Application Control chặn file `.venv/Scripts/dbt.exe` (`os error 4551`) từ chiều 04/11, nên `uv run dbt --version` không chạy, kéo 6 mục dbt sau bị bỏ qua. Gọi bằng `python -m dbt.cli.main` vẫn chạy (dbt-core 1.12.5); `dbt ls` chạy được cho 7 selector (khung 1, staging 74, raw 179, bv 11, asof 8, gold 18, all 291 node). Sáng 04/11, trước khi bị chặn, cùng repo (chưa có Gold) đạt 22/22.
 
 ## Kết quả lần chạy trước (máy thật, 03/11/2026, đến Business Vault)

@@ -36,6 +36,8 @@ Không dựng bảng tổng hợp theo đơn vị:
 
 **Runner:** với mỗi ngày D, chạy `cap_mg_bv` rồi `cap_mg_gold`. Full refresh dựng lại cả hai cho từng ngày giao dịch, ngày đầu kèm `--full-refresh`.
 
+**`cap_mg_all` từ schema trống (D-DBT):** PASS 291, WARN 2 (DQ-MOCOI, GT-HUB-NOMASTER), ERROR 0 với một ngày D = 15/05. Selector loại unit test: unit test giả lập `{{ this }}` của model incremental cần bảng đã có để lấy kiểu cột; lần đầu chạy, 4 unit test lỗi kéo 73 node phía sau bị bỏ qua. Unit test chạy sau bằng `dbt test --select test_type:unit` (11 PASS).
+
 **Selector:** chế độ chọn test eager sẽ kéo một test vào bất kỳ selector nào chọn một model cha của nó. Test Gold đọc staging, raw, BV, nên `cap_mg_staging`, `cap_mg_raw`, `cap_mg_bv`, `cap_mg_asof` đều loại tag `gold`. Đây là cùng lý do `cap_mg_raw` loại `dv_bv`.
 
 **Hiệu năng:**
@@ -115,7 +117,9 @@ Lô không có lỗi có một dòng với `reason_code` NULL.
 
 **Đối chiếu với dữ liệu đề:** tổng `rows_landing` 5.959, tổng `rows_rejected` 39 (bằng `ctrl.reject_count`), đủ 104 lô. Báo cáo theo ngày và giải thích từng mã lỗi ở `docs/chatluong.md`.
 
-**T-GUARD:** lô bị chặn mà chưa được full refresh xử lý nằm ngoài mọi cửa sổ theo ngày, nên test đối chiếu chỉ đòi lô đó có mặt ở tối đa một ngày. Sau full refresh, lô vào đúng ngày theo `ingested_ts`. Vì vậy test T-GUARD so vault, BV, Gold trừ `dq_mg_daily`, rồi kiểm riêng rằng `dq_mg_daily` có thêm đúng dòng của lô giả.
+**Test đối chiếu `test_gold_dq_recon`:** mỗi lô thuộc đúng một ngày, là ngày giao dịch đầu tiên có cutoff ≥ `ingested_ts` (lô không nạp thì theo `business_date`). Lô có mặt thì chỉ được ở ngày đó (`WRONG_DAY`); ngày đó đã dựng thì lô phải có mặt (`MISSING_BATCH`). Bản đầu đòi mọi lô có `ingested_ts` ≤ cutoff lớn nhất phải có mặt, nên đỏ 99 khi `cap_mg_all` chỉ dựng một ngày.
+
+**T-GUARD:** lô bị chặn mà chưa được full refresh xử lý nằm ngoài mọi cửa sổ theo ngày, nên được phép vắng. Sau full refresh, lô vào đúng ngày theo `ingested_ts`. Vì vậy test T-GUARD so vault, BV, Gold trừ `dq_mg_daily`, rồi kiểm riêng rằng `dq_mg_daily` có thêm đúng dòng của lô giả.
 
 ## GD-07: Test và phép thử âm
 
