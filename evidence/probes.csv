@@ -1,0 +1,12 @@
+probe_id,as_of,value,query,note
+P-MG-BACKDATE,2026-04-28,BRK005 (REAFLNK),evidence/probes/p_mg_backdate.sql,"P-MG-BACKDATE: môi giới chăm sóc 9994000016 tại 28/04, khi dựng lại ngày 28/04 sau ngày 06/05 (full refresh dựng lại"
+P-MG-COVERAGE,2026-05-15,16/22,evidence/probes/p_mg_coverage.sql,P-MG-COVERAGE: CAP-MG-COVER30 của BRK009 (tử/mẫu) as-of 15/05.
+P-MG-CYCLE,2026-05-06,G5 -> CN3; G6 -> CN3,evidence/probes/p_mg_cycle.sql,"P-MG-CYCLE: đơn vị cha của G5, G6 as-of 06/05 (lô có vòng bị loại ở staging, giữ phiên bản cây trước)."
+P-MG-KPI,2026-05-15,Phiên bản: CAP-MG-0104 (2026-05-06 16:30:00+07) | Bị loại: CAP-MG-0103 FORMULA_ERROR x1 [BRK021]; CAP-MG-0103 UNAPPROVED_ROW x3 [BRK012;BRK013;BRK014]; CAP-MG-0104 FORMULA_ERROR x1 [BRK021]; CAP-MG-0104 UNAPPROVED_ROW x3 [BRK012;BRK013;BRK014],evidence/probes/p_mg_kpi.sql,P-MG-KPI: phiên bản chỉ tiêu dùng cho ngày 15/05 (lô của phiên bản PIT trỏ tới) và các dòng bị loại của file chỉ tiêu.
+P-MG-OVERLAP,2026-05-05,BRK021 (REAFLNK+DEC-CAP-MG-OVERLAP),evidence/probes/p_mg_overlap.sql,P-MG-OVERLAP: môi giới của tiểu khoản 9994000026 ngày 05/05 (DEC-CAP-MG-OVERLAP).
+P-MG-REASSIGN,2026-05-08,BRK003 x15 | CAP-MG-BOOKNAV BRK003 = 30598239000,evidence/probes/p_mg_reassign.sql,"P-MG-REASSIGN: môi giới chăm sóc các tiểu khoản 9994000001…9994000015; CAP-MG-BOOKNAV của BRK003. As-of 08/05, 11/05."
+P-MG-REASSIGN,2026-05-11,BRK009 x15 | CAP-MG-BOOKNAV BRK003 = 11152701000,evidence/probes/p_mg_reassign.sql,"P-MG-REASSIGN: môi giới chăm sóc các tiểu khoản 9994000001…9994000015; CAP-MG-BOOKNAV của BRK003. As-of 08/05, 11/05."
+P-MG-RESTRUCT,2026-04-29,Cha G4 = CN2 | CN1: 58; CN2: 76; CN3: 66,evidence/probes/p_mg_restruct.sql,"P-MG-RESTRUCT: đơn vị cha của nhóm G4; số tiểu khoản theo chi nhánh. As-of 29/04, 04/05."
+P-MG-RESTRUCT,2026-05-04,Cha G4 = CN1 | CN1: 88; CN2: 46; CN3: 66,evidence/probes/p_mg_restruct.sql,"P-MG-RESTRUCT: đơn vị cha của nhóm G4; số tiểu khoản theo chi nhánh. As-of 29/04, 04/05."
+P-MG-REUSE,2026-05-12,BRK017:2026-05-11: 0 tiểu khoản; CAP-MG-BOOKNAV = 0; tương tác 30 ngày = 0,evidence/probes/p_mg_reuse.sql,"P-MG-REUSE: tiểu khoản, CAP-MG-BOOKNAV, số tương tác 30 ngày tính cho người đang mang mã BRK017. As-of 12/05, 15/05."
+P-MG-REUSE,2026-05-15,BRK017:2026-05-11: 0 tiểu khoản; CAP-MG-BOOKNAV = 0; tương tác 30 ngày = 0,evidence/probes/p_mg_reuse.sql,"P-MG-REUSE: tiểu khoản, CAP-MG-BOOKNAV, số tương tác 30 ngày tính cho người đang mang mã BRK017. As-of 12/05, 15/05."

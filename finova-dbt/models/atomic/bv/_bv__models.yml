@@ -1,0 +1,41 @@
+version: 2
+# Business Vault CAP-MG (atomic, incremental; pre_hook dùng chung đặt GUC của D và xóa phần của D, xem dbt_project.yml).
+# Test: GT-BV-SHAPE (dv_shape), TC-CAP-MG-ONEBROKER ở dưới; GT-BV-PTR, TC-CAP-MG-TREE ở tests/bv/;
+# GT-BV-REBUILD bằng pytest (tests/raw: dấu vân tay sau chạy theo ngày = sau full refresh dựng lại mọi ngày).
+
+models:
+  - name: pit_broker_daily
+    description: "PIT môi giới. Grain: (as_of_date, broker_hk). Con trỏ tới phiên bản hồ sơ và chỉ tiêu tại cutoff(D)."
+    tests:
+      - dv_shape:
+          arguments:
+            allowed: [as_of_date, cutoff_ts, broker_hk, sat_broker_profile_ingested_ts, sat_broker_kpi_ingested_ts]
+
+  - name: pit_account_daily
+    description: "PIT tiểu khoản. Grain: (as_of_date, account_hk). Con trỏ tới phiên bản NAV của ngày D tại cutoff(D)."
+    tests:
+      - dv_shape:
+          arguments:
+            allowed: [as_of_date, cutoff_ts, account_hk, sat_account_nav_ingested_ts]
+
+  - name: bridge_account_broker
+    description: "Tiểu khoản - môi giới chăm sóc. Grain: (as_of_date, account_hk). Chồng lấn chọn theo DEC-CAP-MG-OVERLAP."
+    tests:
+      - dv_shape:
+          arguments:
+            allowed: [as_of_date, cutoff_ts, account_hk, broker_hk, reaflnk_hk, link_reaflnk_hk, is_overlap]
+      # TC-CAP-MG-ONEBROKER (Bảng 70, C-SA-ONEBROKER): tại D mỗi tiểu khoản tối đa một môi giới hiệu lực
+      - dv_unique_combination:
+          name: tc_cap_mg_onebroker
+          arguments:
+            columns: [as_of_date, account_hk]
+
+  - name: bridge_regrp_ancestor
+    description: >
+      Đơn vị - mọi cấp trên (depth 0 là chính nó) theo cây của ngày D. Grain: (as_of_date, regrp_hk, ancestor_regrp_hk).
+      Nhánh mồ côi có môi giới treo vào nút ảo UNKNOWN dưới gốc, is_orphan_branch = true; nhánh mồ côi không có
+      môi giới không vào cây (DEC-CAP-MG-ORPHAN).
+    tests:
+      - dv_shape:
+          arguments:
+            allowed: [as_of_date, cutoff_ts, regrp_hk, ancestor_regrp_hk, depth, is_orphan_branch]

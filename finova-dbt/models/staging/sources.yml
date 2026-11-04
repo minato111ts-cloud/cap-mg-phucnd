@@ -24,3 +24,7 @@ sources:
     tables:
       - name: batch_log
         description: "Mỗi lần loader xử lý một lô; rows_loaded là số dòng đã ghi vào landing"
+      - name: guard_block
+        description: "Lô bị T-GUARD chặn ở từng lần chạy (setup/ctrl_runner.sql)"
+      - name: guard_resolution
+        description: "Cách xử lý lô bị chặn: FULL_REFRESH (đã vào vault) hoặc ACCEPTED (chạy tiếp, chưa vào vault)"

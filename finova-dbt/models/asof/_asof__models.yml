@@ -1,0 +1,26 @@
+version: 2
+# Tầng as-of CAP-MG (schema asof, view). Chỉ dựng view mà Business Vault và Gold của đề cần (Bảng 71, 72).
+# Mọi view đọc asof.cutoff(), asof.as_of_date() (GUC finova.asof_cutoff, finova.asof_date của phiên); chưa đặt thì báo lỗi.
+# Test as-of (PT-ASOF-SINGLE, PT-NOFUTURE, TC-SLV-NOCUTOFF, TC-CAP-MG-FUTUREEFF, TC-CAP-MG-BACKDATE) ở tests/asof bằng pytest:
+# GUC đặt theo connection, dbt test không có hook để đặt.
+# Không dựng: hub_* (khóa nghiệp vụ đã có trong satellite), link_regrp_parent + esat_regrp_parent (cây lấy từ parentid
+# của sat_regrp__flex), link_broker_regrp + esat_broker_regrp (nhóm lấy từ grpid của hồ sơ), sts_* (đã gộp vào view
+# satellite của nguồn bản chụp).
+
+models:
+  - name: asof__sat_regrp__flex
+    description: "Đơn vị as-of D. Grain: regrp_hk. Phiên bản mới nhất ≤ cutoff; bỏ đơn vị DELETED trong sts_regrp__flex."
+  - name: asof__sat_broker_profile__flex
+    description: "Hồ sơ môi giới as-of D. Grain: broker_hk. Phiên bản mới nhất ≤ cutoff; bỏ môi giới DELETED trong sts_broker__flex."
+  - name: asof__sat_reaflnk__flex
+    description: "Bản REAFLNK as-of D, mọi phân công đã biết. Grain: reaflnk_hk. Phiên bản mới nhất ≤ cutoff; bỏ phân công DELETED trong sts_reaflnk__flex."
+  - name: asof__link_reaflnk
+    description: "Link phân công - môi giới - tiểu khoản. Grain: link_reaflnk_hk (một link mỗi reaflnk_hk). ingested_ts ≤ cutoff."
+  - name: asof__esat_reaflnk__flex
+    description: "Phân công hiệu lực tại D: bản REAFLNK as-of D có fr_date ≤ D ≤ to_date. Grain: reaflnk_hk. Có thể hai dòng mỗi tiểu khoản (chồng lấn)."
+  - name: asof__sat_account_nav_daily__flex
+    description: "NAV as-of D. Grain: (account_hk, business_date ≤ D). Mỗi ngày lấy phiên bản mới nhất ≤ cutoff."
+  - name: asof__sat_broker_kpi__manual
+    description: "Chỉ tiêu quý as-of D. Grain: broker_hk. Phiên bản mới nhất ≤ cutoff; bỏ dòng DELETED trong sts_broker_kpi__manual."
+  - name: asof__nhl_broker_event
+    description: "Sự kiện tương tác as-of D. Grain: nhl_broker_event_hk. ingested_ts ≤ cutoff."

@@ -17,11 +17,19 @@ clean-targets:
   - "target"
   - "dbt_packages"
 
+# Hàm đọc cutoff của phiên cho view as-of (macros/asof/asof.sql). Chỉ tạo hàm ở đây; GUC đặt trên connection
+# của từng model BV, Gold (on-run-start chỉ chạy trên một connection, E.8).
+on-run-start:
+  - "{{ asof_create_function('cutoff', 'finova.asof_cutoff', 'timestamptz') }}"
+  - "{{ asof_create_function('as_of_date', 'finova.asof_date', 'date') }}"
+
 vars:
   gold_ready_local_time: "06:00"
   # Ngưỡng nghiệp vụ (INV-M6): phải bằng customers/ctcka/thresholds.yaml,
   # test tests/loader test_thresholds_sync_with_dbt_vars chặn lệch. Runner có thể ghi đè qua --vars.
   event_future_tolerance_minutes: 5
+  # Role đọc Gold có RLS (setup/bootstrap.sql, DEC-CAP-MG-RLSROLE)
+  gold_reader_role: finova_app
 
 seeds:
   cap_mg:
@@ -50,7 +58,12 @@ models:
         +schema: atomic
         +materialized: incremental
         +incremental_strategy: append
+        +on_schema_change: fail
         +tags: ["dv_bv"]
+        # T-BV, QT-DAY-REBUILD: đặt GUC của ngày D trên connection của model, rồi xóa phần của D
+        +pre-hook:
+          - "{{ asof_session() }}"
+          - "{{ asof_day_delete() }}"
     asof:
       +schema: asof
       +materialized: view
@@ -59,4 +72,9 @@ models:
       +schema: mart
       +materialized: incremental
       +incremental_strategy: append
+      +on_schema_change: fail
       +tags: ["gold"]
+      # T-GOLD-DAY (E.8): cùng cơ chế với T-BV; không vật hóa table (REQ-SEM-NOTABLE: policy RLS phụ thuộc bảng)
+      +pre-hook:
+        - "{{ asof_session() }}"
+        - "{{ asof_day_delete() }}"

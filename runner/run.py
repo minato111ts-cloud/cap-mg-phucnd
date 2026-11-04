@@ -9,12 +9,15 @@ Với từng ngày giao dịch D (ref_calendar.csv):
      Người vận hành xử lý bằng full refresh hoặc python -m runner.guard (RV-10).
   4. dbt build staging (test GT-STG-*), ghi số dòng bị loại vào ctrl.reject_count (DEC-ELT-REJECT),
      rồi raw vault với --vars lo_ts, hi_ts, as_of_date.
-  5. Xanh: SUCCESS (full refresh thì ghi đã xử lý cho các lô bị chặn mà nó phủ); đỏ: FAILED kèm error_msg,
+  5. View as-of: chỉ dựng khi full refresh (dbt drop bảng raw kèm cascade, kéo theo view) hoặc khi thiếu view.
+  6. Business Vault (T-BV) rồi Gold (T-GOLD-DAY) của ngày D; full refresh dựng lại cả hai cho mọi ngày giao dịch
+     từ DEFAULT_FROM tới D, mỗi ngày BV trước Gold.
+  7. Xanh: SUCCESS (full refresh thì ghi đã xử lý cho các lô bị chặn mà nó phủ); đỏ: FAILED kèm error_msg,
      lo_ts của lần sau không đổi.
-Business Vault, as-of và Gold cắm thêm vào STEPS khi có.
+Mọi lỗi (T-GUARD chặn, model/test dbt error, fail, warn, exception) ghi vào ctrl.error_log; dbt không ghi file log.
 
 Chạy: uv run --env-file .env python -m runner.run [--from D] [--to D] [--full-refresh] [--skip-load]
-Cần setup/ctrl.sql và setup/ctrl_runner.sql.
+Cần setup/ctrl.sql, setup/ctrl_runner.sql và setup/ctrl_log.sql.
 """
 
 from __future__ import annotations
@@ -23,9 +26,11 @@ import argparse
 import csv
 import json
 import sys
+import traceback
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+from loader.error_log import log_error
 from loader.load import get_db_connection, load_manifest_batches
 
 REPO_DIR = Path(__file__).resolve().parents[1]
@@ -44,6 +49,13 @@ STEPS: list[tuple[str, bool]] = [
 # Sau bước này runner đếm dòng của các view __rejected trong cửa sổ (DEC-ELT-REJECT)
 REJECT_COUNT_AFTER = "cap_mg_staging"
 STAGING_SCHEMA = "staging"
+
+# Tầng as-of là view: dữ liệu mới tự thấy, chỉ cần dựng lại khi view bị mất. Tên view = tên file bỏ tiền tố asof__
+ASOF_SELECTOR = "cap_mg_asof"
+ASOF_SCHEMA = "asof"
+ASOF_VIEWS = sorted(p.stem.removeprefix("asof__") for p in (DBT_DIR / "models" / "asof").glob("*.sql"))
+BV_SELECTOR = "cap_mg_bv"
+GOLD_SELECTOR = "cap_mg_gold"
 
 # Mốc thời gian dạng ISO-8601 UTC, không phụ thuộc TimeZone/DateStyle của phiên; '-infinity' giữ nguyên chữ
 # (psycopg2 đổi -infinity thành datetime.min, ghi lại sổ sẽ thành năm 0001)
@@ -143,28 +155,54 @@ def record_reject_counts(conn, run_id: int, lo_ts: str, hi_ts: str) -> None:
     conn.commit()
 
 
-def run_dbt(selector: str, dbt_vars: dict[str, str] | None, full_refresh: bool) -> tuple[bool, str]:
+def _enum_value(v) -> str:
+    """Giá trị chữ của enum dbt (RunStatus, TestStatus, NodeType)."""
+    return str(getattr(v, "value", v)).lower()
+
+
+def run_dbt(selector: str, dbt_vars: dict[str, str] | None, full_refresh: bool, run_id: int) -> tuple[bool, str]:
     from dbt.cli.main import dbtRunner
 
     # Unit test (mock {{ this }}) chạy lúc phát triển bằng dbt test --select test_type:unit, không chạy trong
     # lịch theo ngày: lần chạy đầu trên DB trống chưa có bảng incremental để dbt lấy kiểu cột.
+    # --log-level-file none: lỗi đã vào ctrl.error_log, không sinh thêm logs/dbt.log
     args = ["build", "--selector", selector, "--exclude-resource-type", "unit_test",
-            "--project-dir", str(DBT_DIR), "--profiles-dir", str(DBT_DIR)]
+            "--project-dir", str(DBT_DIR), "--profiles-dir", str(DBT_DIR), "--log-level-file", "none"]
     if dbt_vars is not None:
         args += ["--vars", json.dumps(dbt_vars)]
     if full_refresh:
         args.append("--full-refresh")
     res = dbtRunner().invoke(args)
+    if res.exception is not None:
+        log_error("dbt", selector, "DBT_EXCEPTION", str(res.exception), run_id=run_id)
+        return False, f"{selector}: {res.exception}"
+
+    # Mỗi model/test error, fail, warn một dòng: lỗi ở đâu là unique_id của node
+    failed: list[str] = []
+    for r in res.result or []:
+        status = _enum_value(r.status)
+        if status not in ("error", "fail", "warn"):
+            continue
+        node_type = _enum_value(r.node.resource_type)
+        detail = r.message or ""
+        if getattr(r, "failures", None):
+            detail = f"{detail} ({r.failures} dòng lỗi)".strip()
+        log_error("dbt", selector, f"{node_type}_{status}".upper(), detail or status,
+                  severity="WARN" if status == "warn" else "ERROR", object_name=r.node.unique_id, run_id=run_id)
+        if status != "warn":
+            failed.append(f"{r.node.name}: {status}")
     if res.success:
         return True, ""
-    if res.exception is not None:
-        return False, f"{selector}: {res.exception}"
-    failed = [
-        f"{r.node.name}: {r.status}"
-        for r in (res.result or [])
-        if str(r.status).lower() in ("error", "fail")
-    ]
-    return False, f"{selector}: " + "; ".join(failed[:10])
+    return False, f"{selector}: " + "; ".join(failed[:10]) + " (chi tiết ở ctrl.error_log)"
+
+
+def missing_asof_views(conn) -> list[str]:
+    with conn.cursor() as cur:
+        # information_schema chỉ liệt kê view mà role hiện tại có quyền
+        cur.execute("set role finova_dbt")
+        cur.execute("select table_name from information_schema.views where table_schema = %s", (ASOF_SCHEMA,))
+        have = {r[0] for r in cur.fetchall()}
+    return [v for v in ASOF_VIEWS if v not in have]
 
 
 def run_day(d: date, full_refresh: bool = False, skip_load: bool = False) -> str:
@@ -176,9 +214,10 @@ def run_day(d: date, full_refresh: bool = False, skip_load: bool = False) -> str
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("select to_regclass('ctrl.guard_block') is not null and to_regclass('ctrl.reject_count') is not null")
+            cur.execute("select to_regclass('ctrl.guard_block') is not null and to_regclass('ctrl.reject_count') is not null"
+                        " and to_regclass('ctrl.error_log') is not null")
             if not cur.fetchone()[0]:
-                raise SystemExit("Thiếu bảng ctrl của runner: chạy setup/ctrl_runner.sql bằng postgres")
+                raise SystemExit("Thiếu bảng ctrl của runner: chạy setup/ctrl_runner.sql và setup/ctrl_log.sql bằng postgres")
             cur.execute("set role finova_dbt")
             cur.execute(SQL_WINDOW)
             lo_ts, hi_ts, max_log_id = cur.fetchone()
@@ -216,17 +255,36 @@ def run_day(d: date, full_refresh: bool = False, skip_load: bool = False) -> str
             # ghi từng lô bị chặn; finish() commit cùng giao dịch với BLOCKED_BY_GUARD
             cur.executemany(SQL_GUARD_BLOCK, [(run_id, *row, lo_ts) for row in late])
         if late:
+            for lid, b, table, _, ts, _, _ in late:
+                log_error("runner", "t_guard", "BLOCKED_BY_GUARD",
+                          f"Lô {b} (log_id {lid}) nạp sau lần chạy SUCCESS trước nhưng mang ingested_ts {ts.isoformat()}"
+                          f" <= lo_ts {lo_ts}. Xử lý: python -m runner.guard list",
+                          object_name=table, run_id=run_id, batch_id=b)
             detail = ", ".join(f"{b} (log_id {lid}, ingested_ts {ts.isoformat()})" for lid, b, _, _, ts, _, _ in late)
             return finish("BLOCKED_BY_GUARD", "T-GUARD: lô về sau lần chạy trước mà mang giờ cũ: " + detail
                           + ". Xem và xử lý: python -m runner.guard list")
 
         dbt_vars = {"lo_ts": lo_ts, "hi_ts": hi_ts, "as_of_date": d.isoformat()}
         for selector, takes_vars in STEPS:
-            ok, err = run_dbt(selector, dbt_vars if takes_vars else None, full_refresh and takes_vars)
+            ok, err = run_dbt(selector, dbt_vars if takes_vars else None, full_refresh and takes_vars, run_id)
             if not ok:
                 return finish("FAILED", err[:2000])
             if selector == REJECT_COUNT_AFTER:
                 record_reject_counts(conn, run_id, lo_ts, hi_ts)
+
+        if full_refresh or missing_asof_views(conn):
+            ok, err = run_dbt(ASOF_SELECTOR, None, False, run_id)
+            if not ok:
+                return finish("FAILED", err[:2000])
+
+        # T-BV rồi T-GOLD-DAY của từng ngày; full refresh tạo lại bảng ở ngày đầu rồi dựng tiếp từng ngày
+        day_list = trading_days(DEFAULT_FROM, d) if full_refresh else [d]
+        for i, day in enumerate(day_list):
+            day_vars = {**dbt_vars, "as_of_date": day.isoformat()}
+            for selector in (BV_SELECTOR, GOLD_SELECTOR):
+                ok, err = run_dbt(selector, day_vars, full_refresh and i == 0, run_id)
+                if not ok:
+                    return finish("FAILED", f"as_of_date {day}: {err}"[:2000])
         return finish("SUCCESS")
     finally:
         conn.close()
@@ -237,7 +295,8 @@ def main() -> None:
     parser.add_argument("--from", dest="d_from", type=date.fromisoformat, default=DEFAULT_FROM, help="Ngày D đầu (YYYY-MM-DD)")
     parser.add_argument("--to", dest="d_to", type=date.fromisoformat, default=DEFAULT_TO, help="Ngày D cuối (YYYY-MM-DD)")
     parser.add_argument("--full-refresh", action="store_true",
-                        help="Một lần chạy cho ngày cuối với lo_ts = -infinity, dựng lại raw vault từ đầu (PT-FULL)")
+                        help="Một lần chạy cho ngày cuối với lo_ts = -infinity: dựng lại raw vault từ đầu (PT-FULL), "
+                             "dựng lại Business Vault và Gold cho mọi ngày giao dịch tới ngày cuối")
     parser.add_argument("--skip-load", action="store_true", help="Không gọi loader (landing đã nạp sẵn)")
     args = parser.parse_args()
 
@@ -248,7 +307,11 @@ def main() -> None:
         days = days[-1:]
 
     for d in days:
-        status = run_day(d, full_refresh=args.full_refresh, skip_load=args.skip_load)
+        try:
+            status = run_day(d, full_refresh=args.full_refresh, skip_load=args.skip_load)
+        except Exception:
+            log_error("runner", "run_day", "EXCEPTION", traceback.format_exc(), object_name=d.isoformat())
+            raise
         if status != "SUCCESS":
             sys.exit(1)
 

@@ -6,7 +6,7 @@ selectors:
       value: tests/khung
 
   - name: cap_mg_staging
-    description: "Tầng staging; bỏ test raw vault đọc cả staging (vd test_raw_completeness), vì chạy trước khi vault được dựng"
+    description: "Tầng staging; bỏ test raw vault, Gold đọc cả staging (vd test_raw_completeness, test của dq_mg_daily), vì chạy trước khi các tầng đó được dựng"
     definition:
       union:
         - method: tag
@@ -14,24 +14,42 @@ selectors:
         - exclude:
             - method: tag
               value: dv_raw
+            - method: tag
+              value: gold
 
   - name: cap_mg_raw
-    description: "Tầng Raw Vault"
+    description: "Tầng Raw Vault; bỏ test Business Vault đọc cả raw vault (vd test_bv_ptr), vì chạy trước khi BV được dựng"
     definition:
-      method: tag
-      value: dv_raw
+      union:
+        - method: tag
+          value: dv_raw
+        - exclude:
+            - method: tag
+              value: dv_bv
+            - method: tag
+              value: gold
 
   - name: cap_mg_bv
-    description: "Tầng Business Vault"
+    description: "Tầng Business Vault; bỏ test Gold đọc cả BV (vd test_gold_vault_totals), vì chạy trước khi Gold của D được dựng"
     definition:
-      method: tag
-      value: dv_bv
+      union:
+        - method: tag
+          value: dv_bv
+        - exclude:
+            - method: tag
+              value: gold
 
   - name: cap_mg_asof
-    description: "Tầng As-of"
+    description: "Tầng As-of; bỏ test BV, Gold (view as-of cần GUC của phiên, test của các tầng đó chạy ở selector của chúng)"
     definition:
-      method: tag
-      value: asof
+      union:
+        - method: tag
+          value: asof
+        - exclude:
+            - method: tag
+              value: dv_bv
+            - method: tag
+              value: gold
 
   - name: cap_mg_gold
     description: "Tầng Gold"

@@ -1,0 +1,126 @@
+version: 2
+# Gold CAP-MG (schema mart, incremental theo ngày D, T-GOLD-DAY). Bảng 71 (4 bảng) và bảng chất lượng D-DQ.
+# Đọc Business Vault và view as-of với cutoff(D); không đọc raw vault, không lấy giờ chạy làm mốc (INV-T2, INV-SEM-ASOF).
+# RLS (INV-SEM-RLSDB): 4 bảng của Bảng 71 cấp SELECT cho var('gold_reader_role'), policy lọc theo finova.viewer_id;
+# dq_mg_daily không cấp cho role đọc.
+# Test: grain (dv_unique_combination), cột cho phép (dv_shape, Gold không có cột định danh), tổng khớp vault và
+# TC-CAP-MG-ROLLUP ở tests/gold/; TC-CAP-MG-RLS bằng pytest (tests/gold), vì cần đặt role và người xem cho phiên.
+#
+# Registry ngữ nghĩa (QT-NO-METRIC-VAULT): mỗi chỉ số một mục meta.metric ở cột của met_broker_daily, gồm mã,
+# kiểu (state, flow, ratio), định nghĩa, giá trị khi không có dữ liệu. Định nghĩa theo Bảng 72 của đề.
+
+models:
+  - name: dim_broker_org_daily
+    description: >
+      Môi giới và vị trí trong cây đơn vị của D. Grain: 1 dòng = 1 người mang mã môi giới (broker_key) tại 1 ngày.
+      Đường dẫn cây theo bridge_regrp_ancestor của D; chi nhánh là đơn vị ngay dưới gốc trên đường dẫn.
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [business_date, broker_key]
+      - dv_shape:
+          arguments:
+            allowed: [business_date, as_of_date, cutoff_ts, broker_key, broker_id, broker_hk, grp_id, branch_id,
+                      org_path, is_in_tree, is_orphan_branch, join_date, leave_date, broker_status, work_status,
+                      scope_ids]
+    columns:
+      - name: broker_key
+        description: "BROKERID:JOINDATE của người mang mã tại D (DEC-CAP-MG-BROKERKEY)"
+      - name: org_path
+        description: "Đường dẫn cây của D, từ gốc xuống nhóm, ví dụ HO > CN1 > G1; UNKNOWN là nút ảo của nhánh mồ côi"
+      - name: work_status
+        description: "ACTIVE; LEFT khi STATUS = C hoặc D sau LEAVEDATE (DEC-CAP-MG-GAP); NOT_STARTED khi D trước JOINDATE"
+      - name: scope_ids
+        description: "Mã môi giới và mọi đơn vị trên đường dẫn; RLS so với phạm vi của người xem"
+
+  - name: dim_account_care_daily
+    description: >
+      Tiểu khoản và môi giới chăm sóc tại D. Grain: 1 dòng = 1 tiểu khoản tại 1 ngày. Tập tiểu khoản là mọi tiểu
+      khoản hệ thống biết tại cutoff(D) (REAFLNK hoặc NAV của D).
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [business_date, account_id]
+      - dv_shape:
+          arguments:
+            allowed: [business_date, as_of_date, cutoff_ts, account_id, account_hk, broker_id, broker_key, broker_hk,
+                      reaflnk_autoid, fr_date, to_date, care_basis, is_assigned, is_overlap, is_carer_inactive]
+    columns:
+      - name: care_basis
+        description: "NO_ASSIGNMENT; hoặc REAFLNK, kèm +DEC-CAP-MG-OVERLAP, +DEC-CAP-MG-GAP khi áp quyết định đó"
+      - name: is_carer_inactive
+        description: "Người mang mã không ở trạng thái ACTIVE tại D, hoặc mã không còn trong hồ sơ (TH-NGHIVIEC)"
+
+  - name: sec_visibility_daily
+    description: >
+      Người xem - tiểu khoản được xem tại D, dùng cho RLS. Grain: 1 dòng = 1 người xem, 1 tiểu khoản, 1 ngày.
+      Phạm vi theo org_roles.csv: mã đơn vị (đơn vị đó và bên dưới, cây của D) hoặc mã môi giới.
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [business_date, viewer_id, account_id]
+      - dv_shape:
+          arguments:
+            allowed: [business_date, as_of_date, cutoff_ts, viewer_id, account_id, broker_key, roles, scopes,
+                      scope_types]
+
+  - name: met_broker_daily
+    description: >
+      Chỉ số môi giới tại D. Grain: 1 dòng = 1 người mang mã môi giới tại 1 ngày, kể cả người không chăm sóc tiểu
+      khoản nào. Tương tác chỉ tính trong khoảng làm việc của người mang mã (DEC-CAP-MG-BROKERKEY).
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [business_date, broker_key]
+      - dv_shape:
+          arguments:
+            allowed: [business_date, as_of_date, cutoff_ts, broker_key, broker_id, broker_hk, n_accounts, book_nav,
+                      n_accounts_without_nav, interactions_30d, cover30_num, cover30_den, cover30, kpi_target_calls,
+                      calls_qtd, kpi_batch_id, kpi_ingested_ts]
+    columns:
+      - name: n_accounts
+        description: "Tiểu khoản chăm sóc"
+        meta:
+          metric: {code: CAP-MG-ACCTCARE, type: state, empty: 0,
+                   definition: "Tiểu khoản có phân công hiệu lực tại D (FRDATE ≤ D ≤ TODATE) trong bản REAFLNK as-of D, một môi giới mỗi tiểu khoản (DEC-CAP-MG-OVERLAP)"}
+      - name: book_nav
+        description: "CAP-MG-BOOKNAV"
+        meta:
+          metric: {code: CAP-MG-BOOKNAV, type: state, empty: 0,
+                   definition: "Σ NAV (file NAV của ngày D) của các tiểu khoản môi giới chăm sóc tại D; tiểu khoản chưa có NAV của D tính 0 và đếm ở n_accounts_without_nav. Không phải TS-AUM"}
+      - name: interactions_30d
+        description: "Số tương tác 30 ngày"
+        meta:
+          metric: {code: CAP-MG-INTER30, type: flow, empty: 0,
+                   definition: "Số sự kiện hợp lệ (CALL, MEET, MSG, NOTE) của người mang mã, ngày sự kiện trong 30 ngày lịch kết thúc tại D, trong khoảng làm việc, ingested_ts ≤ cutoff(D); gồm cả tương tác DQ-QUYEN"}
+      - name: cover30_num
+        description: "Tử của CAP-MG-COVER30"
+      - name: cover30_den
+        description: "Mẫu của CAP-MG-COVER30 = n_accounts"
+      - name: cover30
+        description: "CAP-MG-COVER30 = cover30_num / cover30_den"
+        meta:
+          metric: {code: CAP-MG-COVER30, type: ratio, empty: null, numerator: cover30_num, denominator: cover30_den,
+                   definition: "Tử: tiểu khoản môi giới chăm sóc tại D có ít nhất một tương tác hợp lệ của chính môi giới đó trong 30 ngày lịch kết thúc tại D, vào ngày môi giới đang được giao tiểu khoản đó (phân công hệ thống biết tại cutoff(D)). Mẫu: tiểu khoản môi giới chăm sóc tại D. Lên cấp trên: cộng tử, cộng mẫu rồi chia; mẫu 0 thì NULL"}
+      - name: kpi_target_calls
+        description: "Chỉ tiêu cuộc gọi quý, phiên bản PIT trỏ tới tại cutoff(D) (TH-NHAPTAY)"
+      - name: calls_qtd
+        description: "Số cuộc gọi lũy kế quý"
+        meta:
+          metric: {code: CAP-MG-CALLSQTD, type: flow, empty: 0,
+                   definition: "Số sự kiện CALL hợp lệ của người mang mã, ngày sự kiện từ đầu quý của D tới D, trong khoảng làm việc, ingested_ts ≤ cutoff(D)"}
+      - name: kpi_batch_id
+        description: "Lô của phiên bản chỉ tiêu (ctrl.batch_log)"
+
+  - name: dq_mg_daily
+    description: >
+      Báo cáo chất lượng theo lô (D-DQ, Bảng 75). Grain: 1 dòng = 1 lô, 1 bảng nguồn, 1 lý do tại ngày D; lô không
+      lỗi một dòng reason_code NULL. Ngày D gồm lô có ingested_ts trong (cutoff ngày giao dịch trước, cutoff(D)].
+    tests:
+      - dv_unique_combination:
+          arguments:
+            columns: [as_of_date, batch_id, source_table, reason_code]
+      - dv_shape:
+          arguments:
+            allowed: [business_date, as_of_date, cutoff_ts, batch_id, source_table, rows_landing, rows_valid,
+                      rows_rejected, defect_code, reason_code, key_count, key_sample, handling, test_id]

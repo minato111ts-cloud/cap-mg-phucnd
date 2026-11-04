@@ -1,0 +1,23 @@
+reason_code,defect_code,handling,test_id,note
+KEY_NULL,DQ-KHOA-NULL,LOAI,GT-STG-RECON,Khóa nghiệp vụ rỗng
+KEY_FORMAT,DQ-KHOA-FORMAT,LOAI,GT-STG-RECON,Khóa sai mẫu
+ALLCODE_UNKNOWN,DQ-MA-LA,LOAI,GT-STG-RECON,Mã không có trong danh mục
+CONFLICT_IN_BATCH,DQ-TRUNG-XUNGDOT,LOAI,GT-STG-UNIQUE,Cùng khóa cùng lô khác nội dung: loại cả các dòng
+DUPLICATE_ROW,DQ-TRUNG-NGUYEN,SUA,GT-STG-UNIQUE,Dòng lặp y hệt: giữ một
+DUPLICATE_EVENT,DQ-TRUNG-NGUYEN,SUA,GT-STG-UNIQUE,Sự kiện gửi lặp: khử trùng theo event_id
+INVALID_DATE,DQ-NGAY-SAI,LOAI,GT-STG-RECON,Cột ngày dùng dựng quan hệ không đọc được
+INVALID_DATE_RANGE,DQ-NGAY-SAI,LOAI,GT-STG-RECON,TODATE trước FRDATE
+INVALID_TIMESTAMP,DQ-NGAY-SAI,LOAI,GT-STG-RECON,Thời điểm không đọc được
+INVALID_NUMERIC,DQ-SO-DINHDANG,LOAI,GT-STG-RECON,Số không đọc được
+CYCLE_DETECTED,DQ-VONG,LOAI,test_stg_regrp_no_cycle,Dòng tạo vòng: loại; giữ phiên bản cây trước (DEC-CAP-MG-CYCLE)
+FORMULA_ERROR,DQ-CONGTHUC,LOAI,TC-CAP-MG-EXCEL,Ô lỗi công thức: loại dòng (DEC-CAP-MG-STAGING-RULES)
+UNAPPROVED_ROW,DQ-CHUADUYET,LOAI,TC-CAP-MG-EXCEL,Dòng chỉ tiêu chưa có người duyệt
+FUTURE_TS_FIXED,DQ-TUONGLAI,SUA,TC-CAP-MG-EVENTTIME,event_ts lệch tương lai quá ngưỡng: dùng server_ts và gắn cờ (không phải dòng __rejected)
+PARENT_MISSING,DQ-MOCOI,CANHBAO,test_stg_regrp_parent_missing,Đơn vị trỏ tới cha không có trong bản chụp (không phải dòng __rejected)
+EVENT_NOT_ASSIGNED,DQ-QUYEN,CANHBAO,met_broker_daily,Tương tác với tiểu khoản không giao cho môi giới vào ngày đó theo phân công as-of D: không tính vào độ phủ (không phải dòng __rejected)
+ASSIGNMENT_OVERLAP,DQ-CHONGLAN,QUYETDINH,TC-CAP-MG-ONEBROKER,Tiểu khoản có hai môi giới cùng hiệu lực trong bản chụp: chọn theo DEC-CAP-MG-OVERLAP (không phải dòng __rejected)
+KEY_REUSED,DQ-KHOA-TAISUDUNG,QUYETDINH,test_stg_broker_hk_consistent,Mã môi giới cấp lại cho người khác (JOINDATE đổi): khóa theo DEC-CAP-MG-BROKERKEY (không phải dòng __rejected)
+DUP_CONTENT,,,TC-CAP-LDZ-03,Lô trùng nội dung lô LOADED liền trước: loader bỏ qua (mục 2.3)
+FILE_MISSING,DQ-FILE-HONG,TUCHOI_LO,TC-CAP-LDZ-02,Không thấy file của lô
+SHA256_MISMATCH,DQ-FILE-HONG,TUCHOI_LO,TC-CAP-LDZ-02,File lệch checksum manifest
+ROWCOUNT_MISMATCH,DQ-FILE-HONG,TUCHOI_LO,TC-CAP-LDZ-02,File lệch số dòng manifest

@@ -54,3 +54,18 @@ ALTER DEFAULT PRIVILEGES FOR ROLE finova_loader IN SCHEMA ctrl
 ALTER DEFAULT PRIVILEGES FOR ROLE finova_dbt IN SCHEMA ctrl
     GRANT SELECT ON TABLES TO finova_loader;
 
+-- 6. Role đọc Gold có RLS (INV-SEM-RLSDB, DEC-CAP-MG-RLSROLE): ngoài Bảng 13. Chỉ USAGE trên mart; SELECT từng bảng
+-- do dbt cấp (config grants), policy lọc theo finova.viewer_id. finova_dbt là chủ bảng nên không bị policy chặn.
+DO $do$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'finova_app') THEN
+        CREATE ROLE finova_app NOLOGIN;
+    ELSE
+        ALTER ROLE finova_app NOLOGIN;
+    END IF;
+END
+$do$;
+GRANT finova_app TO postgres;
+REVOKE ALL ON SCHEMA landing, ctrl, staging, atomic, asof FROM finova_app;
+GRANT USAGE ON SCHEMA mart TO finova_app;
+
