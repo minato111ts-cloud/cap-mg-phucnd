@@ -19,7 +19,7 @@ from pathlib import Path
 import psycopg2
 import pytest
 
-from runner.run import DEFAULT_FROM, DEFAULT_TO, cutoff_of, trading_days
+from runner.run import DEFAULT_FROM, DEFAULT_TO, cutoff_of, run_day, trading_days
 
 REPO_DIR = Path(__file__).resolve().parents[2]
 DBT_DIR = REPO_DIR / "finova-dbt"
@@ -363,3 +363,23 @@ def test_t_guard_accept_lets_run_continue(ptfull):
     assert query(dbname, f"select action, resolved_run_id from ctrl.guard_resolution where log_id = {log_id}") == [
         ("ACCEPTED", None)]
     assert query(dbname, "select count(*) from ctrl.v_guard_open") == [(0,)]
+
+
+def test_runner_exception_marks_failed(ptfull, monkeypatch):
+    """Exception giữa lần chạy thì sổ ghi FAILED kèm lỗi, không kẹt RUNNING; lần chạy sau vẫn SUCCESS.
+    Đặt cuối file: test_runner_no_failed_run chặn mọi dòng FAILED của DB thử."""
+    dbname = ptfull["dbname"]
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("phép thử: dbt không chạy được")
+
+    monkeypatch.setenv("CAP_DBNAME", dbname)
+    monkeypatch.setattr("runner.run.run_dbt", boom)
+    with pytest.raises(RuntimeError):
+        run_day(DEFAULT_TO, skip_load=True)
+    _, status, error_msg = last_run(dbname)
+    assert status == "FAILED" and "phép thử" in error_msg
+
+    monkeypatch.undo()
+    assert run_last_day(dbname).returncode == 0
+    assert last_run(dbname)[1] == "SUCCESS"

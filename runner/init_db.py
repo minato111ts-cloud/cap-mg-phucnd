@@ -12,21 +12,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import psycopg2
 from psycopg2 import sql
+
+from loader.load import pg_connect
 
 REPO_DIR = Path(__file__).resolve().parents[1]
 SETUP_FILES = ["bootstrap.sql", "ctrl.sql", "ctrl_runner.sql", "ctrl_log.sql"]
-
-
-def connect(dbname: str):
-    return psycopg2.connect(
-        host=os.environ.get("CAP_PGHOST", "127.0.0.1"),
-        port=int(os.environ.get("CAP_PGPORT", "5436")),
-        dbname=dbname,
-        user=os.environ.get("CAP_PGUSER", "postgres"),
-        password=os.environ["FINOVA_PG_PASSWORD"],
-    )
 
 
 def setup_sql(path: Path) -> str:
@@ -35,7 +26,7 @@ def setup_sql(path: Path) -> str:
 
 def main() -> None:
     dbname = os.environ["CAP_DBNAME"]
-    admin = connect("postgres")
+    admin = pg_connect("postgres")
     admin.autocommit = True
     with admin.cursor() as cur:
         cur.execute("select 1 from pg_database where datname = %s", (dbname,))
@@ -44,7 +35,7 @@ def main() -> None:
             print(f"[init_db] tạo database {dbname}")
     admin.close()
 
-    conn = connect(dbname)
+    conn = pg_connect(dbname)
     try:
         for name in SETUP_FILES:
             with conn.cursor() as cur:

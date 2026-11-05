@@ -28,16 +28,17 @@ import json
 import shutil
 import sys
 import traceback
-from datetime import date, datetime, timedelta, timezone
+from datetime import date
 from pathlib import Path
 
-from loader.error_log import log_error
-from loader.load import get_db_connection, load_manifest_batches
+from psycopg2 import sql
+
+from loader.error_log import log_error, redact
+from loader.load import cutoff_of, get_db_connection, load_manifest_batches
 
 REPO_DIR = Path(__file__).resolve().parents[1]
 DBT_DIR = REPO_DIR / "finova-dbt"
 CALENDAR_CSV = DBT_DIR / "seeds" / "ref_calendar.csv"
-VN_TZ = timezone(timedelta(hours=7))
 # Kỳ chạy của đề (mục 2.1): lô nạp ban đầu 17/04, rồi từng ngày giao dịch tới 15/05/2026
 DEFAULT_FROM = date(2026, 4, 17)
 DEFAULT_TO = date(2026, 5, 15)
@@ -136,12 +137,6 @@ group by r.batch_id, l.source_table, r.reason_code
 """
 
 
-def cutoff_of(d: date) -> datetime:
-    """cutoff(D): hết ngày D, tức 00:00 ngày D+1 giờ Việt Nam (mục 2.1)."""
-    nxt = d + timedelta(days=1)
-    return datetime(nxt.year, nxt.month, nxt.day, tzinfo=VN_TZ)
-
-
 def trading_days(d_from: date, d_to: date) -> list[date]:
     with CALENDAR_CSV.open(encoding="utf-8-sig", newline="") as fp:
         days = [date.fromisoformat(r["calendar_date"]) for r in csv.DictReader(fp) if r["is_trading_day"].strip() == "1"]
@@ -150,8 +145,6 @@ def trading_days(d_from: date, d_to: date) -> list[date]:
 
 def record_reject_counts(conn, run_id: int, lo_ts: str, hi_ts: str) -> None:
     """DEC-ELT-REJECT: ghi số dòng bị loại theo (batch_id, reason_code) của mọi view __rejected trong cửa sổ."""
-    from psycopg2 import sql
-
     with conn.cursor() as cur:
         cur.execute("set role finova_dbt")
         cur.execute(SQL_REJECTED_VIEWS, (STAGING_SCHEMA,))
@@ -287,43 +280,49 @@ def run_day(d: date, full_refresh: bool = False, skip_load: bool = False) -> str
                   + (f" ({error_msg})" if error_msg else ""))
             return status
 
-        with conn.cursor() as cur:
-            cur.execute(SQL_GUARD, {"lo_ts": lo_ts})
-            late = cur.fetchall()
-            # ghi từng lô bị chặn; finish() commit cùng giao dịch với BLOCKED_BY_GUARD
-            cur.executemany(SQL_GUARD_BLOCK, [(run_id, *row, lo_ts) for row in late])
-        if late:
-            for lid, b, table, _, ts, _, _ in late:
-                log_error("runner", "t_guard", "BLOCKED_BY_GUARD",
-                          f"Lô {b} (log_id {lid}) nạp sau lần chạy SUCCESS trước nhưng mang ingested_ts {ts.isoformat()}"
-                          f" <= lo_ts {lo_ts}. Xử lý: python -m runner.guard list",
-                          object_name=table, run_id=run_id, batch_id=b)
-            detail = ", ".join(f"{b} (log_id {lid}, ingested_ts {ts.isoformat()})" for lid, b, _, _, ts, _, _ in late)
-            return finish("BLOCKED_BY_GUARD", "T-GUARD: lô về sau lần chạy trước mà mang giờ cũ: " + detail
-                          + ". Xem và xử lý: python -m runner.guard list")
+        try:
+            with conn.cursor() as cur:
+                cur.execute(SQL_GUARD, {"lo_ts": lo_ts})
+                late = cur.fetchall()
+                # ghi từng lô bị chặn; finish() commit cùng giao dịch với BLOCKED_BY_GUARD
+                cur.executemany(SQL_GUARD_BLOCK, [(run_id, *row, lo_ts) for row in late])
+            if late:
+                for lid, b, table, _, ts, _, _ in late:
+                    log_error("runner", "t_guard", "BLOCKED_BY_GUARD",
+                              f"Lô {b} (log_id {lid}) nạp sau lần chạy SUCCESS trước nhưng mang ingested_ts {ts.isoformat()}"
+                              f" <= lo_ts {lo_ts}. Xử lý: python -m runner.guard list",
+                              object_name=table, run_id=run_id, batch_id=b)
+                detail = ", ".join(f"{b} (log_id {lid}, ingested_ts {ts.isoformat()})" for lid, b, _, _, ts, _, _ in late)
+                return finish("BLOCKED_BY_GUARD", "T-GUARD: lô về sau lần chạy trước mà mang giờ cũ: " + detail
+                              + ". Xem và xử lý: python -m runner.guard list")
 
-        dbt_vars = {"lo_ts": lo_ts, "hi_ts": hi_ts, "as_of_date": d.isoformat()}
-        for selector, takes_vars in STEPS:
-            ok, err = run_dbt(selector, dbt_vars if takes_vars else None, full_refresh and takes_vars, run_id)
-            if not ok:
-                return finish("FAILED", err[:2000])
-            if selector == REJECT_COUNT_AFTER:
-                record_reject_counts(conn, run_id, lo_ts, hi_ts)
-
-        if full_refresh or missing_asof_views(conn):
-            ok, err = run_dbt(ASOF_SELECTOR, None, False, run_id)
-            if not ok:
-                return finish("FAILED", err[:2000])
-
-        # T-BV rồi T-GOLD-DAY của từng ngày; full refresh tạo lại bảng ở ngày đầu rồi dựng tiếp từng ngày
-        day_list = trading_days(DEFAULT_FROM, d) if full_refresh else [d]
-        for i, day in enumerate(day_list):
-            day_vars = {**dbt_vars, "as_of_date": day.isoformat()}
-            for selector in (BV_SELECTOR, GOLD_SELECTOR):
-                ok, err = run_dbt(selector, day_vars, full_refresh and i == 0, run_id)
+            dbt_vars = {"lo_ts": lo_ts, "hi_ts": hi_ts, "as_of_date": d.isoformat()}
+            for selector, takes_vars in STEPS:
+                ok, err = run_dbt(selector, dbt_vars if takes_vars else None, full_refresh and takes_vars, run_id)
                 if not ok:
-                    return finish("FAILED", f"as_of_date {day}: {err}"[:2000])
-        return finish("SUCCESS")
+                    return finish("FAILED", err[:2000])
+                if selector == REJECT_COUNT_AFTER:
+                    record_reject_counts(conn, run_id, lo_ts, hi_ts)
+
+            if full_refresh or missing_asof_views(conn):
+                ok, err = run_dbt(ASOF_SELECTOR, None, False, run_id)
+                if not ok:
+                    return finish("FAILED", err[:2000])
+
+            # T-BV rồi T-GOLD-DAY của từng ngày; full refresh tạo lại bảng ở ngày đầu rồi dựng tiếp từng ngày
+            day_list = trading_days(DEFAULT_FROM, d) if full_refresh else [d]
+            for i, day in enumerate(day_list):
+                day_vars = {**dbt_vars, "as_of_date": day.isoformat()}
+                for selector in (BV_SELECTOR, GOLD_SELECTOR):
+                    ok, err = run_dbt(selector, day_vars, full_refresh and i == 0, run_id)
+                    if not ok:
+                        return finish("FAILED", f"as_of_date {day}: {err}"[:2000])
+            return finish("SUCCESS")
+        except Exception as exc:
+            # không để sổ kẹt ở RUNNING; main() ghi traceback vào ctrl.error_log
+            conn.rollback()
+            finish("FAILED", redact(f"{type(exc).__name__}: {exc}")[:2000])
+            raise
     finally:
         conn.close()
 

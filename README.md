@@ -26,7 +26,7 @@ Capstone dbt Finova (`FNV-CAP-DBT v1.5`), đề `CAP-MG`. Luồng: gói đề `i
    uv sync
    ```
    Máy bật Application Control có thể chặn cả `.venv/Scripts/dbt.exe` (`os error 4551`). Khi đó gọi dbt qua Python, cùng bản đã ghim: `uv run python -c "from dbt.cli.main import cli; cli()" <lệnh dbt>` thay cho `uv run dbt <lệnh dbt>`; `check_khung.py` nhận lệnh này qua `--dbt-cmd`. Runner gọi dbt trong tiến trình Python nên không bị ảnh hưởng.
-2. **Biến môi trường.** Chép `.env.example` thành `.env` (đã nằm trong `.gitignore`) và điền `FINOVA_PG_PASSWORD`, `CAP_DBNAME`. Mặc định của repo là cổng `5436` (container `finova-pg16-dev`, REQ-ENV-07); máy chạy PostgreSQL ở cổng khác thì đặt `CAP_PGPORT` trong `.env`, không sửa mặc định trong repo. Loader không tự đọc `.env`, nên mọi lệnh chạy qua `uv run --env-file .env`.
+2. **Biến môi trường.** Chép `.env.example` thành `.env` (đã nằm trong `.gitignore`) và điền `FINOVA_PG_PASSWORD`, `CAP_DBNAME`. Mặc định của repo là cổng `5436` (container `finova-pg16-dev`, REQ-ENV-07); máy chạy PostgreSQL ở cổng khác thì đặt `CAP_PGPORT` trong `.env`, không sửa mặc định trong repo. Loader không tự đọc `.env`, nên mọi lệnh chạy qua `uv run --env-file .env`. Gói đề không nằm cạnh repo thì đặt `CAP_MG_KIT_DIR` (thư mục `CAP-MG`); loader, runner và pytest cùng đọc biến này.
 3. **dbt profile.** Chép `finova-dbt/profiles.example.yml` thành `finova-dbt/profiles.yml` (đã nằm trong `.gitignore`).
 4. **Database.** `python -m runner.init_db` tạo database `CAP_DBNAME` nếu chưa có, rồi chạy `setup/bootstrap.sql`, `setup/ctrl.sql`, `setup/ctrl_runner.sql`, `setup/ctrl_log.sql` bằng user `postgres`. Cả bốn file chạy lại nhiều lần không lỗi, nên lệnh này cũng vậy (chạy bằng `psql` từng file cũng được).
 
@@ -100,7 +100,7 @@ select broker_id, fr_date, to_date from asof.esat_reaflnk__flex where afacctno =
 ```
 Đặt `finova.asof_cutoff` muộn hơn cutoff(D) là hỏi "giờ biết gì về ngày D", không dùng cho số liệu theo ngày (TH-LUIHIEULUC).
 
-Runner chạy cho database trống hoặc tiếp tục từ lần SUCCESS cuối trong `ctrl.batch_run`. Database đã nạp landing bằng loader trước KT-22 (thiếu `CAP-MG-0032`, `CAP-MG-0066`) thì không cần dựng lại: chạy `python -m loader.load --recheck-dup` rồi `python -m runner.run --full-refresh --skip-load` (mục "Nạp lại và nạp bù").
+Runner chạy cho database trống hoặc tiếp tục từ lần SUCCESS cuối trong `ctrl.batch_run`.
 
 Kết quả mong đợi trên gói đề (02/11/2026): loader 63 lô `LOADED` (5.959 dòng) và 41 lô `SKIPPED_DUP`; `dbt build` staging PASS 71, WARN 1 (DQ-MOCOI, G7 → CN9), ERROR 0; raw vault 19 bảng, WARN 1 (GT-HUB-NOMASTER, CN9); runner 19 lần chạy SUCCESS; 11 unit test PASS; 8 view as-of; Business Vault 4 bảng × 19 ngày, mỗi lần `cap_mg_bv` PASS 13; Gold 5 bảng × 19 ngày, mỗi lần `cap_mg_gold` PASS 20; `RUN_PT_FULL=1 pytest -q tests` 50 passed; `cap_mg_all` từ schema trống PASS 291, WARN 2; `runner.evidence` lệch 0 giữa ba lần chạy; `runner.probes` 11 dòng đáp án ở `evidence/probes.csv`.
 
@@ -129,8 +129,7 @@ Sổ nạp của đề (`batch_log`, `load_reject`) giữ nguyên; dòng bị lo
 
 - **Chạy lại loader** (vô tình hay theo lịch) an toàn: dòng manifest đã có trong sổ (theo `arrival_seq`) bị bỏ qua, không thêm dòng landing.
 - **Nguồn gửi lại** cùng `batch_id` thì ghi `SKIPPED_DUP/ALREADY_LOADED`; cùng nội dung với lô LOADED gần nhất của bảng thì `SKIPPED_DUP/DUP_CONTENT` (bản chụp quay về nội dung một lô cũ hơn vẫn được nạp, KT-22); nội dung khác với `batch_id` mới thì nạp như lô mới, raw vault ghi phiên bản mới nếu hashdiff đổi.
-- **Nạp bù theo ngày:** chạy với `--as-of-date`/`--cutoff`, lần sau chạy tiếp; lô sau mốc chưa vào sổ nên được nhặt.
-- **Lô bị bỏ nhầm vì DUP_CONTENT** (sổ nạp trước KT-22): `uv run --env-file .env python -m loader.load --recheck-dup` xét lại các lô `DUP_CONTENT` chưa từng LOADED, theo thứ tự `arrival_seq`. Lô khác lô LOADED liền trước của bảng thì được nạp; lô vẫn trùng thì giữ nguyên, không ghi thêm sổ. Chạy lại không đổi gì. Lô nạp lại mang `ingested_ts` cũ nên raw vault phải full refresh (`runner.run --full-refresh --skip-load`); nếu runner đã từng chạy ở database đó thì lần chạy theo lịch kế tiếp sẽ dừng ở T-GUARD (mục dưới).
+- **Nạp bù theo ngày:** chạy với `--as-of-date`, lần sau chạy tiếp; lô sau mốc chưa vào sổ nên được nhặt.
 - **Lô bị từ chối** (`REJECTED_BATCH`) đã vào sổ nên không tự thử lại; cần dòng manifest mới (nguồn gửi lại).
 - **Staging** là view, chạy lại bao nhiêu lần cũng cùng kết quả.
 

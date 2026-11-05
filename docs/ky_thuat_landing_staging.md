@@ -2,7 +2,7 @@
 
 - **Đề:** `CAP-MG` (môi giới, đơn vị và chăm sóc), `FNV-CAP-DBT v1.5`
 - **Ngày lập:** 02/11/2026
-- **Thay thế:** các mục staging trong `docs/bao_cao_chot_ky_thuat_staging.md` (bản 30/10/2026). Các quyết định nghiệp vụ `DEC-CAP-MG-*` vẫn ở `docs/decisions.md` (D-QUYETDINH); file này dẫn chiếu tới đó khi cần.
+- **Thay thế:** các mục staging của báo cáo chốt kỹ thuật bản 30/10/2026 (đã xóa khỏi repo, xem lịch sử git). Các quyết định nghiệp vụ `DEC-CAP-MG-*` vẫn ở `docs/decisions.md` (D-QUYETDINH); file này dẫn chiếu tới đó khi cần.
 
 ## Mục đích và cách đọc
 
@@ -414,6 +414,8 @@ Sửa lại mô tả phép thử âm ở đầu `test_stg_keyts.sql`.
 **Bằng chứng.** Loader trên dữ liệu đề: 63 lô `LOADED` (5.959 dòng), 41 `SKIPPED_DUP`; trước khi sửa là 61 và 43. Phép thử âm: dùng lại truy vấn cũ thì test đỏ (A2 thành `DUP_CONTENT`).
 
 **Sửa sổ đã nạp bằng loader cũ.** Lệnh `python -m loader.load --recheck-dup` xét lại các lô `DUP_CONTENT` chưa từng LOADED, theo `arrival_seq`, so với lô LOADED liền trước của bảng theo `arrival_seq`. Không so theo `log_id`, vì lô nạp lại mang `log_id` mới nhưng vẫn đứng ở vị trí cũ trong chuỗi bản chụp. Lô vẫn trùng thì không ghi thêm sổ, nên chạy lại không đổi gì. Test `test_tc_cap_ldz_03c_recheck_dup_reloads_wrongly_skipped`.
+
+**Cập nhật 05/11/2026.** Đã gỡ `--recheck-dup` khỏi loader: lệnh chỉ dùng một lần để sửa sổ nạp bằng quy tắc cũ. Mọi database hiện có đủ 63 lô `LOADED`, gồm `CAP-MG-0032` và `CAP-MG-0066`. Database nạp bằng loader cũ thì dựng lại từ đầu.
 
 ## KT-23 (Thấp): Tên `stg_ref__nav` sai quy ước QT-TEN-STG
 

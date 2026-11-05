@@ -21,8 +21,7 @@ import shutil
 import subprocess
 import sys
 
-import psycopg2
-
+from loader.load import pg_connect
 from runner.run import DEFAULT_TO, REPO_DIR, trading_days, DEFAULT_FROM
 
 EVIDENCE = REPO_DIR / "evidence"
@@ -38,9 +37,7 @@ def step(env: dict, *args: str) -> None:
 
 def recreate_db(dbname: str) -> None:
     assert dbname.endswith("_evidence"), "Chỉ xóa và dựng lại database có hậu tố _evidence"
-    conn = psycopg2.connect(host=os.environ.get("CAP_PGHOST", "127.0.0.1"), port=int(os.environ.get("CAP_PGPORT", "5436")),
-                            dbname="postgres", user=os.environ.get("CAP_PGUSER", "postgres"),
-                            password=os.environ["FINOVA_PG_PASSWORD"])
+    conn = pg_connect("postgres")
     conn.autocommit = True
     with conn.cursor() as cur:
         cur.execute(f'drop database if exists "{dbname}" with (force)')

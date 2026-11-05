@@ -67,10 +67,9 @@ Kiểm nhanh bằng psql:
 ## 2. Nạp landing
 
 ```powershell
-uv run --env-file .env python -m loader.load --batch-id CAP-MG-0001   # thử một lô
-uv run --env-file .env python -m loader.load                          # toàn bộ manifest
+uv run --env-file .env python -m loader.load   # toàn bộ manifest
 ```
-Tham số khác: `--as-of-date YYYY-MM-DD` (cutoff 00:00 ngày D+1 giờ VN), `--cutoff <ISO-8601>`, `--base-dir`, `--contracts-dir`.
+Tham số khác: `--as-of-date YYYY-MM-DD` (cutoff 00:00 ngày D+1 giờ VN), `--base-dir`.
 
 ### Kết quả đối soát
 
@@ -153,11 +152,10 @@ Ba lớp: test cột trong `schema.yml` (`not_null` mức error cho khóa băm, 
 | Tình huống | Loader xử lý |
 |---|---|
 | Chạy lại loader (vô tình hoặc theo lịch) | Dòng manifest đã có trong sổ (theo `arrival_seq`) bị bỏ qua: 0 lô |
-| `--batch-id` một lô đã nạp | Cũng bị bỏ qua theo `arrival_seq` |
 | Nguồn gửi lại cùng `batch_id` | `SKIPPED_DUP / ALREADY_LOADED` |
 | Gửi lại file y hệt, `batch_id` mới | `SKIPPED_DUP / DUP_CONTENT` |
 | Lô sửa (nội dung khác) | `LOADED` như lô mới; raw vault quyết định có phiên bản mới không bằng hashdiff |
-| Nạp bù theo ngày (`--as-of-date`, `--cutoff`) | Lô sau mốc chưa vào sổ, lần sau tự nhặt |
+| Nạp bù theo ngày (`--as-of-date`) | Lô sau mốc chưa vào sổ, lần sau tự nhặt |
 | File hỏng, sai số dòng, thiếu file | `REJECTED_BATCH`; lỗi giữa chừng rollback cả lô |
 
 Staging là view nên chạy lại bao nhiêu lần cũng cùng kết quả.
@@ -264,5 +262,5 @@ Sau khi sửa, trên database thật: `dbt build` PASS 69, WARN 1, ERROR 0; pyte
 6. Chạy lại trên máy thật các phép thử âm KT-07 còn ghi kết quả môi trường thay thế; chạy `check_khung.py --dbt --json` ghi `evidence/khung.json`.
 7. Dọn dẹp:
    - `.env.example` trên máy đang có mật khẩu, chưa commit; trả về bản repo bằng `git restore .env.example`.
-   - Database `cap_mg_phucnd_negtest` vẫn còn, giữ để thử âm cho raw vault; xóa khi xong bằng `drop database cap_mg_phucnd_negtest`.
+   - Database `cap_mg_phucnd_negtest` đã xóa ngày 05/11/2026 sau khi xong các phép thử âm.
    - Tên tác giả commit đang là `unknown`; đặt bằng `git config user.name "<tên>"`.

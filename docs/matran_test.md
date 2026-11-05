@@ -41,7 +41,6 @@
 | `test_tc_cap_ldz_02_negative_physical_integrity` | File thiếu, sai SHA-256, sai số dòng → `REJECTED_BATCH` |
 | `test_tc_cap_ldz_03_idempotency_and_duplicate_content` | Nạp lại → `ALREADY_LOADED`; gửi lặp nội dung → `DUP_CONTENT` |
 | `test_tc_cap_ldz_03b_snapshot_revert_is_loaded` | KT-22: bản chụp quay về nội dung cũ (A → B → A) vẫn `LOADED`; chỉ trùng lô gần nhất mới `DUP_CONTENT`. Phép thử âm: so với mọi lô LOADED → đỏ (máy thật) |
-| `test_tc_cap_ldz_03c_recheck_dup_reloads_wrongly_skipped` | `--recheck-dup` (KT-22): lô từng bị DUP_CONTENT mà khác lô LOADED liền trước (theo `arrival_seq`) được nạp; vẫn trùng thì giữ nguyên, không ghi thêm sổ; chạy lại không đổi gì. Phép thử âm: bỏ nhánh "vẫn trùng thì không ghi sổ" → đỏ (máy thật) |
 | `test_tc_cap_ldz_04_schema_drift_resilience` | Cột mới → thêm cột NULL, ghi `ctrl.schema_drift` |
 | `test_tc_cap_ldz_05_inv_t1_load_reject_missing_event_ts` | Dòng không tính được `event_ts` → `ctrl.load_reject` (INV-T1) |
 | `test_tc_cap_ldz_06_spreadsheet_physical_tracing` | Dấu vết dòng/cột Excel (`excel_row_no`, `source_col_map`) |
@@ -120,6 +119,7 @@ Chạy bằng `dbt test --select test_type:unit` lúc phát triển. Runner khô
 | T-GUARD | `test_t_guard_blocks_replayed_batch` | Phép thử âm: chèn lô LOADED mang giờ 22/04 sau lần chạy cuối, thì lần sau ghi `BLOCKED_BY_GUARD`; lô có ở `ctrl.guard_block`; chạy lại vẫn chặn, `v_guard_open` gộp 2 lần chặn; `runner.guard list` in lô và lệnh full refresh |
 | T-GUARD | `test_t_guard_full_refresh_resolves_block` | Full refresh SUCCESS ghi `guard_resolution` FULL_REFRESH; lần sau không chặn; raw, BV, Gold không đổi, riêng `dq_mg_daily` có thêm đúng dòng của lô giả (ngày 22/04, báo theo sổ nạp) |
 | T-GUARD | `test_t_guard_accept_lets_run_continue` | ACCEPTED không có lý do bị từ chối; có lý do thì lần sau SUCCESS |
+| Runner | `test_runner_exception_marks_failed` | Phép thử âm: `run_dbt` ném exception thì `ctrl.batch_run` ghi `FAILED` kèm lỗi, không kẹt `RUNNING`; lần sau SUCCESS |
 
 ## As-of: pytest (`tests/asof/test_asof.py`)
 

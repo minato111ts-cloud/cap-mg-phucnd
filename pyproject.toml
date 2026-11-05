@@ -8,7 +8,9 @@ dependencies = [
     "dbt-core==1.12.5",
     "dbt-postgres==1.11.0",
     "openpyxl==3.1.5",
+    "psycopg2-binary==2.9.13",
     "pytest==8.3.5",
+    "pyyaml==6.0.3",
 ]
 
 [tool.uv]

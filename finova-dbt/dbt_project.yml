@@ -26,7 +26,7 @@ on-run-start:
 vars:
   gold_ready_local_time: "06:00"
   # Ngưỡng nghiệp vụ (INV-M6): phải bằng customers/ctcka/thresholds.yaml,
-  # test tests/loader test_thresholds_sync_with_dbt_vars chặn lệch. Runner có thể ghi đè qua --vars.
+  # test test_thresholds_in_sync_with_dbt_vars chặn lệch. Runner có thể ghi đè qua --vars.
   event_future_tolerance_minutes: 5
   # Role đọc Gold có RLS (setup/bootstrap.sql, DEC-CAP-MG-RLSROLE)
   gold_reader_role: finova_app

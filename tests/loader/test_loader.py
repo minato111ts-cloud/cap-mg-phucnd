@@ -41,8 +41,6 @@ from loader.load import (
     resolve_row_event_ts,
     process_single_batch,
     read_file_records,
-    recheck_dup_batches,
-    _log_batch,
 )
 
 
@@ -57,6 +55,7 @@ def db_conn(contracts):
     """Fixture kết nối database, chạy trong transaction với rollback an toàn sau mỗi test."""
     conn = get_db_connection()
     ensure_landing_infrastructure(conn, contracts)
+    conn.commit()
     yield conn
     conn.rollback()
     conn.close()
@@ -325,38 +324,6 @@ def test_tc_cap_ldz_03b_snapshot_revert_is_loaded(contracts, db_conn, tmp_path: 
     assert (res["status"], res["reason_code"]) == ("SKIPPED_DUP", "DUP_CONTENT")
 
 
-def test_tc_cap_ldz_03c_recheck_dup_reloads_wrongly_skipped(contracts, db_conn, tmp_path: Path):
-    """
-    KT-22, --recheck-dup: sổ nạp bằng quy tắc cũ có A, B LOADED và A2, A3 (trùng A) DUP_CONTENT. Xét lại thì A2 được
-    nạp vì khác B (lô liền trước theo arrival_seq); A3 trùng A2 nên giữ DUP_CONTENT, không ghi thêm sổ. Chạy lại không đổi gì.
-    """
-    sample_table = next(iter(contracts.keys()))
-    contract = contracts[sample_table]
-    rows = []
-    for seq, (batch_id, n) in enumerate([("TEST-RCK-A", 1), ("TEST-RCK-B", 2), ("TEST-RCK-A2", 1), ("TEST-RCK-A3", 1)],
-                                        start=990001):
-        m, _ = generate_synthetic_batch(contract, tmp_path, batch_id=batch_id, num_rows=n)
-        rows.append(dict(m, arrival_seq=str(seq)))
-    for m in rows[:2]:
-        assert process_single_batch(db_conn, m, tmp_path, contracts, commit=False)["status"] == "LOADED"
-    # mô phỏng sổ do loader cũ ghi: A2, A3 bị bỏ vì trùng A
-    with db_conn.cursor() as cur:
-        cur.execute("SET ROLE finova_loader;")
-        for m in rows[2:]:
-            _log_batch(cur, m, "SKIPPED_DUP", "DUP_CONTENT", content_hash=m["sha256"])
-
-    thresholds = load_thresholds()
-    res = recheck_dup_batches(db_conn, rows, tmp_path, contracts, thresholds, commit=False)
-    assert [(r["batch_id"], r["status"]) for r in res] == [("TEST-RCK-A2", "LOADED"), ("TEST-RCK-A3", "SKIPPED_DUP")]
-    assert recheck_dup_batches(db_conn, rows, tmp_path, contracts, thresholds, commit=False) == [
-        {"batch_id": "TEST-RCK-A3", "status": "SKIPPED_DUP", "reason_code": "DUP_CONTENT", "rows_loaded": 0, "rows_rejected": 0}]
-
-    with db_conn.cursor() as cur:
-        cur.execute("SELECT batch_id, status FROM ctrl.batch_log WHERE batch_id LIKE 'TEST-RCK-%' ORDER BY log_id;")
-        assert cur.fetchall() == [("TEST-RCK-A", "LOADED"), ("TEST-RCK-B", "LOADED"), ("TEST-RCK-A2", "SKIPPED_DUP"),
-                                  ("TEST-RCK-A3", "SKIPPED_DUP"), ("TEST-RCK-A2", "LOADED")]
-
-
 # ==============================================================================
 # TC-CAP-LDZ-04: Khả năng chống chịu Trôi cấu trúc (Schema Drift Resilience)
 # ==============================================================================
@@ -612,6 +579,14 @@ def test_tc_cap_ldz_07_contract_driven_mock_contract(db_conn, tmp_path: Path):
         assert row[2] == 3
         assert row[3] == "100"
         assert row[4] == "300"
+
+    # 4. Hợp đồng giả không để lại dấu vết: hạ tầng nằm trong giao dịch của test, rollback là mất
+    db_conn.rollback()
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('landing.test_synthetic_stream');")
+        assert cur.fetchone()[0] is None
+        cur.execute("SELECT count(*) FROM ctrl.source_system WHERE source_id = 'test_core_system';")
+        assert cur.fetchone()[0] == 0
 
 
 # ==============================================================================
