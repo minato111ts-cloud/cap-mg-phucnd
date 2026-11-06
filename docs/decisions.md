@@ -24,7 +24,7 @@ Mã **`BRK017`** được cấp cho hai người (số liệu kiểm trực ti�
 
 | Phương án | Thiết kế | Hệ quả (`P-MG-REUSE` tại `12/05`, `15/05`: người đang mang mã `BRK017`) |
 | --- | --- | --- |
-| **A (ĐƯỢC CHỌN): mã nguồn làm khóa hub, tách người bằng satellite** | `broker_hk = dv_hash('FLEX', BROKERID)` ở **mọi** staging. `JOINDATE` nằm trong hashdiff của satellite hồ sơ môi giới: cấp lại mã thì sinh phiên bản mới. Business Vault dựng khoảng làm việc `[JOINDATE, LEAVEDATE]` của người mang mã tại `D`; Gold chỉ tính phân công và tương tác nằm trong khoảng làm việc đó. `broker_key = BROKERID:JOINDATE` suy từ phiên bản hiệu lực tại `D`. | 0 tiểu khoản, `CAP-MG-BOOKNAV = 0`, 0 tương tác 30 ngày. Nếu Gold quên lọc theo khoảng làm việc: vẫn 0 tiểu khoản nhưng **16 tương tác** (sai, của người cũ) vì cửa sổ 30 ngày tới `12/05` hay `15/05` đều phủ `20–29/04`. Test bảo vệ: lọc theo khoảng làm việc trong `TC-CAP-MG-*` ở Gold. |
+| **A (ĐƯỢC CHỌN): mã nguồn làm khóa hub, tách người bằng satellite** | `broker_hk = dv_hash('FLEX', BROKERID)` ở **mọi** staging. `JOINDATE` nằm trong hashdiff của satellite hồ sơ môi giới: cấp lại mã thì sinh phiên bản mới. Business Vault dựng khoảng làm việc `[JOINDATE, LEAVEDATE]` của người mang mã tại `D`; Gold chỉ tính phân công và tương tác nằm trong khoảng làm việc đó. `broker_key = BROKERID:JOINDATE` suy từ phiên bản hiệu lực tại `D`. | 0 tiểu khoản, `CAP-MG-BOOKNAV = 0`, 0 tương tác 30 ngày. Nếu Gold quên lọc theo khoảng làm việc: vẫn 0 tiểu khoản nhưng **16 tương tác** (sai, của người cũ) vì cửa sổ 30 ngày tới `12/05` hay `15/05` đều phủ `20–29/04`. Test bảo vệ: `test_dec_brokerkey_new_holder_has_no_old_interactions` (`tests/gold/test_care_metrics.py`); bỏ lọc khoảng làm việc thì test đỏ với 16 tương tác. |
 | **B: khóa ghép `(BROKERID, JOINDATE)`** | Hub là người. `flex_reaflnk` tra `JOINDATE` từ `flex_broker` ở staging; sự kiện và chỉ tiêu (khác nguồn) chỉ mang mã nên phải tra ở Business Vault, raw vault cần thêm hub theo mã và link nối hai hub. | Kết quả đúng như A nếu phép tra đúng. Tra theo `FRDATE` (người có `JOINDATE ≤ FRDATE`) **không ra người cho 4 phân công bẫy** của `BRK017`; tra theo người mang mã tại `ingested_ts` của lô buộc staging đọc landing `flex_broker` ngoài cửa sổ `(lo, hi]`, phụ thuộc thứ tự lô broker/reaflnk trong ngày và có rủi ro lệch giữa chạy theo ngày với full refresh (`PT-FULL`). |
 
 ### Quyết định chốt
@@ -33,7 +33,9 @@ Chọn **Phương án A**. Lý do:
 
 1. Khóa hub là thứ cả bốn nguồn đều gửi, nên mọi link khớp hub mà không cần tra (`DEC-ELT-HUBSRC`, `GT-LNK-PARENT`). Test `tests/staging/test_stg_broker_hk_consistent.sql` chặn việc các staging tính `broker_hk` khác nhau.
 2. Logic tách người chỉ nằm ở **một** chỗ (Business Vault/Gold, dựa trên phiên bản satellite đã lọc as-of), thay vì rải ở staging và Business Vault như B. Dù chọn phương án nào, sự kiện ứng dụng chỉ mang mã nên logic khoảng làm việc vẫn bắt buộc phải có.
-3. Phù hợp tinh thần `DEC-SA-BROKERKEY`: tách "người" khỏi "mã", giữ mã môi giới quen dùng để tra cứu.
+3. Đối chiếu `DEC-SA-BROKERKEY` (chưa chốt): đề xuất của Finova khóa hub bằng `RECFLNK.AUTOID`, giữ `REACCTNO` làm khóa phụ thuộc trên link chăm sóc, và cảnh báo có thể cần "một khóa người ổn định". Gói đề không có `RECFLNK`, nên hub ở đây khóa theo mã `BROKERID`, tức lệch đề xuất. Tinh thần giữ nguyên: mã quen dùng vẫn tra được, và `broker_key = BROKERID:JOINDATE` ở Business Vault/Gold chính là khóa người ổn định đó.
+
+Hệ quả lên số liệu trước ngày cấp lại: không đổi. Người cũ giữ `broker_key = BRK017:2025-05-14`, tại `29/04` có 13 tiểu khoản, `CAP-MG-BOOKNAV = 22.129.625.000`, 16 tương tác; từ `04/05` tới `08/05` có 0 tiểu khoản, 16 tương tác. Từ `11/05` mã thuộc `BRK017:2026-05-11` với 0 tiểu khoản, 0 tương tác.
 
 Đánh đổi chấp nhận: raw vault không tự phân biệt hai người của cùng mã; nếu Gold quên lọc theo khoảng làm việc thì số liệu của người mới bị lẫn người cũ (16 tương tác ở ví dụ trên). Người cũ biến khỏi bản chụp từ `11/05` thể hiện bằng phiên bản satellite mới, không phải bằng việc khóa hub vắng mặt.
 
@@ -43,25 +45,30 @@ Chọn **Phương án A**. Lý do:
 
 ### Bối cảnh & Dữ liệu thực tế
 
-Từ lô `CAP-MG-0053` (`2026-05-04`) đến `CAP-MG-0073` (`2026-05-08`), có **3 tiểu khoản (`9994000026`, `9994000027`, `9994000028`)** có 2 bản ghi phân công `STATUS = 'A'` cùng thỏa mãn `FRDATE <= D <= TODATE`:
+Từ lô `CAP-MG-0053` (`04/05`), **3 tiểu khoản (`9994000026`, `9994000027`, `9994000028`)** có 2 bản ghi phân công cùng thỏa `FRDATE <= D <= TODATE`:
 
-- Bản ghi cũ `AUTOID 26, 27, 28`: giao cho **`BRK010`**, `FRDATE` từ năm `2025`, `TODATE = 9999-12-31` (do nguồn quên đóng `TODATE` khi chuyển giao; mãi đến lô `CAP-MG-0080` ngày `2026-05-11`, nguồn mới cập nhật `TODATE = 2026-05-03` cho `AUTOID 26..28` hoặc điều chỉnh lại).
-- Bản ghi mới `AUTOID 216, 217, 218`: giao cho **`BRK021`**, `FRDATE = 2026-05-04`, `TODATE = 9999-12-31` (từ lô `CAP-MG-0080` ngày `11/05` sửa `TODATE = 2026-05-08`).
+- `AUTOID 26, 27, 28`: giao cho **`BRK010`**, `FRDATE` năm `2025`, `TODATE = 9999-12-31`. Nguồn không đóng dòng này ở bất kỳ lô nào.
+- `AUTOID 216, 217, 218`: giao cho **`BRK021`**, `FRDATE = 2026-05-04`, `TODATE = 9999-12-31`. Lô `CAP-MG-0080` (`11/05`) đóng về `TODATE = 2026-05-08`.
+
+Hệ quả theo as-of: `04/05` tới `08/05` có chồng lấn (5 ngày giao dịch), phương án chọn cho `BRK021`. Từ as-of `11/05`, `AUTOID 216..218` đã đóng nên tiểu khoản về `BRK010`, không còn chồng lấn tại `D`. Việc nguồn giữ `BRK021` tới `08/05` phù hợp với phương án được chọn cho các ngày đó.
 
 ### Các phương án cân nhắc & So sánh số liệu tại ngày `2026-05-05` (`P-MG-OVERLAP`)
 
-Tại ngày `2026-05-05` (lô `ref_nav` `CAP-MG-0059`), NAV của 3 tiểu khoản chồng lấn là:
+NAV ngày `05/05` (`ref_nav`, số đủ đồng):
 
-- `9994000026`: `1.640.000.000` VND
-- `9994000027`: `760.000.000` VND
-- `9994000028`: `2.050.000.000` VND
-- **Tổng NAV của 3 tiểu khoản chồng lấn ngày `05/05`:** **`4.450.000.000` VND**.
+- `9994000026`: `2.781.711.000`
+- `9994000027`: `2.774.697.000`
+- `9994000028`: `2.214.312.000`
+- **Tổng 3 tiểu khoản chồng lấn:** **`7.770.720.000`**
 
-| Phương án                                                                                                                                              | Quy tắc phân xử                                                                                                                                                                                                                                                                          | Hệ quả tại ngày `2026-05-05` (`P-MG-OVERLAP`)                                                                                                                                                                                                                                                                                                                                                             |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Phương án A (ĐƯỢC CHỌN):** Phân công có **`FRDATE` muộn hơn thắng** (nếu cùng `FRDATE` thì `ingested_ts` muộn hơn / `AUTOID` lớn hơn thắng, so như số khi toàn chữ số) | Khi một tiểu khoản có nhiều phân công `STATUS = 'A'` thỏa `FRDATE <= D <= TODATE`, xếp hạng `ROW_NUMBER() OVER (PARTITION BY afacctno ORDER BY frdate DESC, ingested_ts DESC, autoid::bigint DESC) = 1`. Gắn cờ `is_overlap_resolved = true`, `resolution_basis = 'DEC-CAP-MG-OVERLAP'`. | - Tiểu khoản `9994000026..28` ngày `05/05` thuộc về **`BRK021`**.- `CAP-MG-BOOKNAV` ngày `05/05` của **`BRK021`** tăng thêm `4.450.000.000` VND (từ `8.910.000.000` của 8 TK gốc lên **`13.360.000.000`** với 11 TK).- `CAP-MG-BOOKNAV` ngày `05/05` của **`BRK010`** chỉ gồm 5 TK còn lại (`9994000021..25`) = **`6.160.000.000`** VND.- Đảm bảo bất biến `C-SA-ONEBROKER` (`TC-CAP-MG-ONEBROKER` xanh). |
-| **Phương án B:** Phân công cũ (`FRDATE` sớm hơn / `AUTOID` nhỏ hơn) thắng                                                                              | Ưu tiên bản ghi gốc cho đến khi bản ghi gốc chính thức đóng `TODATE`.                                                                                                                                                                                                                    | - Tiểu khoản `9994000026..28` ngày `05/05` vẫn tính cho **`BRK010`**.- `CAP-MG-BOOKNAV` ngày `05/05` của **`BRK010`** = `6.160.000.000 + 4.450.000.000` = **`10.610.000.000`** VND (8 TK); của **`BRK021`** = **`8.910.000.000`** VND (8 TK).- Trái với thực tế nghiệp vụ là phân công mới sinh ra để thay thế phân công cũ nhưng tác nghiệp viên quên đóng ngày kết thúc của dòng cũ.                    |
-| **Phương án C:** Giữ cả hai môi giới và cảnh báo                                                                                                       | Không khử trùng trên Business Vault, cho phép 1 tiểu khoản gắn với 2 môi giới cùng ngày.                                                                                                                                                                                                 | - Vi phạm trực tiếp ràng buộc `C-SA-ONEBROKER` (làm test `TC-CAP-MG-ONEBROKER` đỏ) và làm tổng `BOOKNAV` toàn công ty/chi nhánh bị tính trùng tăng ảo `4.450.000.000` VND.                                                                                                                                                                                                                                |
+Phần không tranh chấp: `BRK010` 9 tiểu khoản `16.244.048.000`; `BRK021` 7 tiểu khoản `7.344.038.000`.
+
+| Phương án | Quy tắc | Môi giới của `9994000026` | `CAP-MG-BOOKNAV` `BRK010` (số TK) | `CAP-MG-BOOKNAV` `BRK021` (số TK) | Nhận xét |
+| --- | --- | --- | ---: | ---: | --- |
+| **A (ĐƯỢC CHỌN): `FRDATE` muộn hơn thắng** | Xếp `frdate desc`, rồi `ingested_ts desc`, rồi `autoid` giảm dần | `BRK021` | `16.244.048.000` (9) | `15.114.758.000` (10) | Đúng số ở `mart.met_broker_daily`. `TC-CAP-MG-ONEBROKER` xanh |
+| B: Phân công biết sau thắng | Xếp `ingested_ts desc` | `BRK021` | `16.244.048.000` (9) | `15.114.758.000` (10) | Cùng số với A trên dữ liệu đề, vì `AUTOID 216..218` vừa có `FRDATE` muộn hơn vừa biết sau. Lệch A khi nguồn nhập bù một phân công cũ hơn (`TH-LUIHIEULUC`): phân công đó thắng dù hiệu lực sớm hơn |
+| C: Phân công cũ thắng | Xếp `frdate asc` | `BRK010` | `24.014.768.000` (12) | `7.344.038.000` (7) | Ngược nghiệp vụ: phân công mới sinh ra để thay phân công cũ, nguồn quên đóng dòng cũ |
+| D: Tính cho cả hai và báo | Không phân xử | Cả hai | `24.014.768.000` (12) | `15.114.758.000` (10) | Tổng hai môi giới thừa `7.770.720.000`, tổng chi nhánh và công ty bị tính trùng; vi phạm `C-SA-ONEBROKER`, `TC-CAP-MG-ONEBROKER` đỏ |
 
 ### Quyết định chốt
 
@@ -73,7 +80,7 @@ Chọn **Phương án A**: Ưu tiên bản ghi phân công có **`FRDATE` muộn
 
 ### Bối cảnh & Dữ liệu thực tế
 
-- Môi giới `BRK017` (Ngô Đức Châu) nghỉ việc với `LEAVEDATE = 2026-04-30`, nhưng thông tin nghỉ việc này chỉ được hệ thống nguồn cập nhật từ lô `CAP-MG-0052` (`2026-05-04`), cùng thời điểm 12 tiểu khoản `9994000109..9994000120` được chuyển sang `BRK018` (`FRDATE = 2026-05-04`).
+- Môi giới `BRK017` (Ngô Đức Châu) nghỉ việc với `LEAVEDATE = 2026-04-30`, nhưng thông tin nghỉ việc này chỉ được hệ thống nguồn cập nhật từ lô `CAP-MG-0052` (`2026-05-04`), cùng thời điểm 13 tiểu khoản (`9994000020..25`, `9994000041`, `065`, `089`, `113`, `137`, `161`, `185`) đóng ở `03/05` và chuyển sang `BRK018` (`FRDATE = 2026-05-04`).
 - Trong trường hợp tổng quát (hoặc tại các ngày nghỉ lễ `01/05`–`03/05` khi xét lịch sử hiệu lực nhân sự, hoặc khi môi giới đã có `STATUS = 'C'` / `LEAVEDATE < D` nhưng bản ghi `flex_reaflnk` vẫn còn hiệu lực `FRDATE <= D <= TODATE`), hệ thống cần quy tắc hiển thị người chăm sóc trên `gold.dim_account_care_daily`.
 
 ### Các phương án cân nhắc
@@ -83,6 +90,22 @@ Chọn **Phương án A**: Ưu tiên bản ghi phân công có **`FRDATE` muộn
 | **Phương án A (ĐƯỢC CHỌN):** **Giữ nguyên môi giới đang được phân công (người đã nghỉ) kèm cờ cảnh báo `is_carer_inactive = true`** | Tuân thủ đúng yêu cầu tại Bảng 68 (`TH-NGHIVIEC`: _"Trong khoảng trống, tiểu khoản vẫn gắn người đã nghỉ, có cờ"_). Không tự ý sửa dữ liệu phân công của Core FLEX. | - `dim_account_care_daily` vẫn hiển thị `broker_key` của môi giới trên hợp đồng phân công, nhưng có cờ `is_carer_inactive = true` và `care_basis` chứa `DEC-CAP-MG-GAP`.- Khi tính chỉ số tiểu khoản mồ côi / thiếu người chăm sóc hoạt động (`KH-ORPHANCNT`), các tiểu khoản có `broker_key IS NULL OR is_carer_inactive = true` đều được đếm vào diện cần tái phân công, giúp phòng Kinh doanh phát hiện ngay các tiểu khoản đang gắn với nhân viên đã nghỉ việc. |
 | **Phương án B:** Tự động gán về Trưởng nhóm (`LEAD-G*`)                                                                             | Khi môi giới có `STATUS = 'C'`, tự động đẩy tiểu khoản lên cho Trưởng nhóm quản lý.                                                                                 | - Làm sai lệch lịch sử phân công thực tế của hệ thống Core FLEX và làm chỉ số `KH-ORPHANCNT` bằng `0` (che giấu việc tiểu khoản chưa được tái phân công chính thức).                                                                                                                                                                                                                                                                                                                                         |
 | **Phương án C:** Để trống (`broker_key = NULL`)                                                                                     | Xóa trắng người chăm sóc ngay khi môi giới nghỉ việc.                                                                                                               | - Làm mất dấu vết lịch sử tiểu khoản đó từng thuộc về nhóm/chi nhánh nào trong khoảng trống chuyển giao, gây lệch số cộng dồn cấp nhóm/chi nhánh (`TC-CAP-MG-ROLLUP`).                                                                                                                                                                                                                                                                                                                                       |
+
+### Số liệu theo từng phương án
+
+`KH-ORPHANCNT` (FNV-MET-001 §7.8) đếm tiểu khoản không có liên kết môi giới hiệu lực hoặc môi giới đứng tên đã nghỉ. Trên Gold đọc bằng `count(*) filter (where broker_key is null or is_carer_inactive)`.
+
+**Dữ liệu đề: `KH-ORPHANCNT = 0` ở cả 19 ngày giao dịch, cả ba phương án.** Ngày nghỉ của người cũ là `30/04`, nhưng `01–03/05` không có ngày giao dịch; ngày giao dịch `04/05` thì 13 tiểu khoản đã thuộc `BRK018`. As-of `29/04` hệ thống cũng chưa biết người này nghỉ. Ba phương án chỉ khác nhau khi có ngày giao dịch trong khoảng trống.
+
+Để thấy số khác nhau, phép thử trên database thử giữ 13 tiểu khoản ở `BRK017` tới `05/05` (kéo dài `TODATE`, dời `FRDATE` của `BRK018`, dựng lại ngày `05/05`):
+
+| Phương án | `KH-ORPHANCNT` tại `05/05` | `CAP-MG-BOOKNAV` của người đã nghỉ | Tổng theo đơn vị |
+| --- | ---: | ---: | --- |
+| **A: giữ người đã nghỉ, có cờ** | `13` (đo được, `care_basis = REAFLNK+DEC-CAP-MG-GAP`) | `22.214.317.000` (13 TK) | Số vẫn thuộc nhóm `G5` của người cũ, tổng không đổi |
+| B: gán về trưởng nhóm | `0` | `0`, chuyển sang trưởng nhóm | Tổng nhóm không đổi, nhưng chỉ số báo không còn tiểu khoản cần chuyển |
+| C: để trống | `13` | `0` | `22.214.317.000` không gắn nhóm nào, tổng nhóm và chi nhánh hụt đúng số đó |
+
+Số của B, C suy từ cùng phép thử, không dựng model riêng. Dòng A đo trực tiếp; `test_th_nghiviec_flag_follows_work_status` xanh ở tình huống này, và đỏ khi bỏ cờ.
 
 ### Quyết định chốt
 
@@ -107,6 +130,16 @@ Tại lô `CAP-MG-0061` (`business_date = 2026-05-06`), bảng `flex_regrp` có 
 | **Phương án A (ĐƯỢC CHỌN):** **Loại các dòng tạo vòng tại Staging (`CYCLE_DETECTED`) và giữ nguyên phiên bản cha hợp lệ liền trước (`CN3`) khi dựng cây ngày `06/05`** | - Tại `stg_flex__regrp`, thuật toán phát hiện chu trình đẩy 2 dòng lỗi `G5` và `G6` của lô `CAP-MG-0061` sang `stg_flex__regrp__rejected` với `reason_code = 'CYCLE_DETECTED'`.- Nhờ 2 dòng lỗi không vào Raw Vault (hoặc bị chặn ở Business Vault), khi dựng `bridge_regrp_ancestor` tại `as-of 2026-05-06`, phiên bản hiệu lực mới nhất của `G5` và `G6` trong Satellite vẫn là phiên bản hợp lệ từ lô trước (`PARENTID = 'CN3'`). | - Đúng hoàn toàn với yêu cầu tại Bảng 67 (`DQ-VONG`: _"LOAI các dòng tạo vòng; giữ phiên bản cây trước đó"_).- Tại ngày `06/05` (`P-MG-CYCLE`), đơn vị cha của `G5` và `G6` là **`CN3`**, đường dẫn cây là `HO > CN3 > G5` và `HO > CN3 > G6`.- Mọi nút đều có đường đi lên tới `HO` (`TC-CAP-MG-TREE` xanh) và tổng số tiểu khoản/NAV cấp chi nhánh `CN3` bằng đúng tổng các nhóm con `G5 + G6` (`TC-CAP-MG-ROLLUP` xanh). |
 | **Phương án B:** Bỏ hẳn các nút tạo vòng (`G5`, `G6`) khỏi cây ngày `06/05`                                                                                            | Không dùng phiên bản trước, xóa `G5` và `G6` khỏi cây tổ chức ngày `06/05`.                                                                                                                                                                                                                                                                                                                                                      | - Toàn bộ 8 môi giới thuộc nhóm `G5` và `G6` bị mất đơn vị vào ngày `06/05`, làm sụt giảm đột ngột số liệu cộng dồn của Chi nhánh 3 (`CN3`) và Hội sở (`HO`) vào ngày `06/05`.                                                                                                                                                                                                                                              |
 | **Phương án C:** Dừng pipeline (`STOP build`)                                                                                                                          | Báo lỗi và dừng toàn bộ tiến trình chạy ngày `06/05`.                                                                                                                                                                                                                                                                                                                                                                            | - Vi phạm nguyên tắc Cô lập lỗi (`QT-COLAP`): dữ liệu lỗi ở 2 dòng của 1 lô làm tê liệt báo cáo toàn hệ thống.                                                                                                                                                                                                                                                                                                              |
+
+### Số liệu theo từng phương án (ngày `06/05`)
+
+Số thật ở `mart`: `G5` 4 môi giới, 21 tiểu khoản, `30.673.713.000`; `G6` 4 môi giới, 45 tiểu khoản, `76.086.010.000`.
+
+| Phương án | Cha của `G5`, `G6` | `CN3`: số TK, `CAP-MG-BOOKNAV` | `HO`: số TK, `CAP-MG-BOOKNAV` |
+| --- | --- | ---: | ---: |
+| **A (ĐƯỢC CHỌN)** | `CN3`, `CN3` | `66`, `106.759.723.000` | `200`, `316.320.659.000` |
+| B: bỏ nút tạo vòng | Không có | `0`, `0` | `134`, `209.560.936.000` |
+| C: dừng build | Không có số | Không có Gold ngày `06/05` | Không có Gold ngày `06/05`, các ngày sau chờ xử lý |
 
 ### Quyết định chốt
 
@@ -138,7 +171,7 @@ Chọn **Phương án A**: Phát hiện chu trình trên từng lô `flex_regrp`
    - Cạnh đồ thị tạo chu trình khép kín (`DQ-VONG` $\rightarrow$ `CYCLE_DETECTED`).
 6. **Ưu tiên 6 — Xung đột / Trùng lặp bản ghi trong lô (`CONFLICT_IN_BATCH` / `DUPLICATE_EVENT`):**
    - Với bảng snapshot: cùng `business_key` xuất hiện $\ge 2$ lần trong một lô với thuộc tính khác nhau (`CONFLICT_IN_BATCH`).
-   - Với bảng sự kiện `finova_app_events` (`DQ-TRUNG-NGUYEN`): bản ghi trùng `event_id` (lấy `row_number() > 1` theo thứ tự xuất hiện) được tách sang `stg_finova_app__events__rejected` với `reason_code = 'CONFLICT_IN_BATCH'` (hoặc `DUPLICATE_EVENT`) để vừa khử trùng ở view chính (`634` dòng hợp lệ), vừa bảo toàn tổng đối soát `rows_landing (653) = rows_valid (634) + rows_rejected (19)` cho `GT-STG-RECON`.
+   - Với bảng sự kiện `finova_app_events` (`DQ-TRUNG-NGUYEN`): bản ghi trùng `event_id` (lấy `row_number() > 1` theo thứ tự xuất hiện) được tách sang `stg_finova_app__events__rejected` với `reason_code = 'DUPLICATE_EVENT'` để vừa khử trùng ở view chính (`634` dòng hợp lệ), vừa bảo toàn tổng đối soát `rows_landing (653) = rows_valid (634) + rows_rejected (19)` cho `GT-STG-RECON`.
 7. **Ưu tiên 7 — Sửa tự động (`SUA`) và Cảnh báo (`CANHBAO`) trên các dòng hợp lệ:**
    - Chỉ khi bản ghi vượt qua cả 6 bước kiểm tra loại dòng trên, tầng Staging mới áp dụng quy tắc sửa tự động (`DQ-TUONGLAI`: khi `event_ts > server_ts + interval '5 minutes'` thì lấy `server_ts` và đặt `is_future_ts_fixed = true`; `DQ-EXCEL`: đổi dấu phẩy thập phân thành dấu chấm) và chuyển tiếp vào Raw Vault.
 
@@ -211,4 +244,4 @@ Bảng 67: `DQ-QUYEN` (môi giới ghi tương tác với tiểu khoản không 
 
 ### Quyết định chốt
 
-Chọn **Phương án A**. `DQ-QUYEN` vẫn được đếm và báo ở `dq_mg_daily` (`EVENT_NOT_ASSIGNED`, `CANHBAO`). "Ngày môi giới đang được giao tiểu khoản" trong tử của `CAP-MG-COVER30` xét theo bản phân công hệ thống biết tại cutoff(D) (`asof.sat_reaflnk__flex`), giữ đúng `INV-SEM-ASOF`.
+Chọn **Phương án A**. `DQ-QUYEN` vẫn được đếm và báo ở `dq_mg_daily` (`EVENT_NOT_ASSIGNED`, `CANHBAO`). Test: `tests/gold/test_care_metrics.py`. Trên dữ liệu đề, điều kiện "vào ngày đang được giao" không đổi tử của môi giới nào, vì 7 tương tác `DQ-QUYEN` đều nhắm tiểu khoản môi giới không chăm sóc tại ngày hỏi; phép thử âm phải chèn sự kiện giả (`docs/matran_test.md`). "Ngày môi giới đang được giao tiểu khoản" trong tử của `CAP-MG-COVER30` xét theo bản phân công hệ thống biết tại cutoff(D) (`asof.sat_reaflnk__flex`), giữ đúng `INV-SEM-ASOF`.

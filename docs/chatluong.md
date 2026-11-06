@@ -1,12 +1,13 @@
 # Báo cáo chất lượng dữ liệu — CAP-MG (D-DQ)
 
 - **Nguồn số:** bảng `mart.dq_mg_daily` (Phụ lục C, Bảng 75), dựng theo ngày D cùng Gold. Logic ở `docs/ky_thuat_gold.md` GD-06.
-- **Kỳ:** 19 ngày giao dịch, 17/04 → 15/05/2026. Số đo trên DB chính sau `runner.run --full-refresh --skip-load`, 04/11/2026.
+- **Kỳ:** 19 ngày giao dịch, 17/04 → 15/05/2026. Số đối chiếu lại ngày 06/11/2026 trên database dựng mới theo D-RUNBOOK.
 - **Đối chiếu:**
   - Tổng `rows_landing` = 5.959, bằng số dòng loader đã nạp.
-  - Tổng `rows_rejected` = 39, bằng `ctrl.reject_count`.
+  - Tổng `rows_rejected` = 39, bằng `ctrl.reject_count` và tổng các view `__rejected`: sự kiện 19, phân công 10, chỉ tiêu 8, cây đơn vị 2, môi giới 0, NAV 0.
   - Đủ 104 lô của `ctrl.batch_log`: 63 `LOADED`, 41 `SKIPPED_DUP`.
   - Mỗi lô `LOADED` có `rows_landing = rows_valid + rows_rejected`. Test `test_gold_dq_recon` kiểm cả ba điều trên ở mỗi lần dựng.
+  - Database `cap_mg_phucnd` dùng để phát triển có 106 dòng `ctrl.batch_log` (43 `SKIPPED_DUP`): `CAP-MG-0032`, `CAP-MG-0066` có thêm dòng `SKIPPED_DUP` cũ từ trước KT-22, trước khi `--recheck-dup` nạp lại hai lô này. `dq_mg_daily` vẫn đủ 104 lô. Database dựng mới có đúng 104 dòng.
 
 Truy vấn lại:
 
@@ -56,7 +57,7 @@ Ngày D gồm các lô có `ingested_ts` trong (cutoff của ngày giao dịch t
 | DQ-TUONGLAI | `FUTURE_TS_FIXED` | SUA | 1 lô, 6 khóa | `finova_app_events` lô `CAP-MG-0036` (vào ngày 27/04): giờ thiết bị lệch quá server_ts + 5 phút | Dùng `server_ts`, gắn cờ `is_future_ts_fixed`; dòng vẫn hợp lệ | TC-CAP-MG-EVENTTIME |
 | DQ-KHOA-NULL | `KEY_NULL` | LOAI | 1 lô, 4 khóa | `finova_app_events` lô `CAP-MG-0087` (12/05): sự kiện không có `broker_id` | Loại ở staging | GT-STG-RECON |
 | DQ-MA-LA | `ALLCODE_UNKNOWN` | LOAI | 1 lô, 3 khóa | `finova_app_events` lô `CAP-MG-0087`: `event_type` không có trong `event_type.csv` | Loại ở staging | GT-STG-RECON |
-| DQ-QUYEN | `EVENT_NOT_ASSIGNED` | CANHBAO | 2 lô, 7 khóa | `finova_app_events` 06/05 (BRK005: 2), 13/05 (BRK009: 5): tương tác với tiểu khoản không giao cho môi giới vào ngày đó, theo phân công hệ thống biết tại cutoff(D) | Nhận dòng; không tính vào tử của CAP-MG-COVER30, vẫn tính vào số tương tác 30 ngày (DEC-CAP-MG-INTER30) | `met_broker_daily` |
+| DQ-QUYEN | `EVENT_NOT_ASSIGNED` | CANHBAO | 2 lô, 7 khóa | `finova_app_events` 06/05 (BRK005: 2), 13/05 (BRK009: 5): tương tác với tiểu khoản không giao cho môi giới vào ngày đó, theo phân công hệ thống biết tại cutoff(D) | Nhận dòng; không tính vào tử của CAP-MG-COVER30, vẫn tính vào số tương tác 30 ngày (DEC-CAP-MG-INTER30) | `test_dq_quyen_not_in_cover30`, `test_dq_quyen_events_have_no_assignment` |
 | DQ-CHUADUYET | `UNAPPROVED_ROW` | LOAI | 2 lô, 3 khóa mỗi lô | `manual_kpi` v1 (`CAP-MG-0103`), v2 (`CAP-MG-0104`): `BRK012`, `BRK013`, `BRK014` chưa có người duyệt | Loại ở staging; các môi giới đó không có chỉ tiêu | TC-CAP-MG-EXCEL |
 | DQ-CONGTHUC | `FORMULA_ERROR` | LOAI | 2 lô, 1 khóa mỗi lô | `manual_kpi` v1, v2: dòng `BRK021` có ô lỗi công thức | Loại cả dòng (DEC-CAP-MG-STAGING-RULES) | TC-CAP-MG-EXCEL |
 | — | `DUP_CONTENT` | — | 41 lô | Bản chụp REGRP, BROKER, REAFLNK trùng nội dung lô LOADED liền trước | Loader bỏ qua (mục 2.3); không phải lỗi dữ liệu | TC-CAP-LDZ-03 |
@@ -65,4 +66,5 @@ Ngày D gồm các lô có `ingested_ts` trong (cutoff của ngày giao dịch t
 
 - **DQ-EXCEL** (tiêu đề hai dòng, ô gộp, số ghi dạng chữ): loader và staging sửa theo cấu trúc file. Đây không phải lỗi của từng dòng; TC-CAP-MG-EXCEL kiểm việc đọc đúng.
 - **TH-NGHIVIEC / DEC-CAP-MG-GAP:** khoảng trống 01–03/05 của BRK017 không có ngày giao dịch, nên Gold không có tiểu khoản nào mang cờ `is_carer_inactive`.
+- **DQ-PII:** `FULLNAME`, `EMAIL`, `MOBILE` của `flex_broker` và họ tên của `manual_kpi` là cột định danh có sẵn, không phải dòng lỗi. Staging che email, số điện thoại; họ tên chỉ đi vào hash; Gold không có các cột này (GT-STG-PII, `dv_shape`).
 - **Lỗi file** (DQ-FILE-HONG: `FILE_MISSING`, `SHA256_MISMATCH`, `ROWCOUNT_MISMATCH`): gói đề không có lô nào bị từ chối. Nếu có, dòng sẽ mang `handling = TUCHOI_LO`.
