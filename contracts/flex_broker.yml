@@ -4,6 +4,7 @@ table_kind: entity_snapshot
 capture_mode: full_snapshot
 format: csv
 business_key: [BROKERID]   # DEC-CAP-MG-BROKERKEY PA A: mã nguồn làm khóa hub; người tách bằng satellite (JOINDATE)
+business_key_reason: "BROKERID là mã duy nhất cả bốn nguồn cùng mang (REAFLNK.REACCTNO, app broker_id, chỉ tiêu), không trùng trong bản chụp; ghép JOINDATE thì hai nguồn không phải FLEX không tra được người, lý do đủ ở DEC-CAP-MG-BROKERKEY"
 grain: "Một mã môi giới và người đang mang mã đó tại một bản chụp cuối ngày; mã cấp lại cho người mới thì JOINDATE đổi (DEC-CAP-MG-BROKERKEY)"
 event_ts:
   expr: "commit_ts của lô trong manifest.csv"

@@ -4,6 +4,7 @@ table_kind: transaction_log
 capture_mode: incremental
 format: jsonl
 business_key: [event_id]
+business_key_reason: "event_id là UUID do ứng dụng sinh cho mỗi tương tác; 653 dòng có 641 mã, 12 dòng lặp y hệt là DQ-TRUNG-NGUYEN; không có khóa tự nhiên khác vì một môi giới được ghi nhiều tương tác với một tiểu khoản"
 grain: "Một sự kiện tương tác của môi giới với tiểu khoản khách hàng trên ứng dụng Finova"
 event_ts:
   expr: "case when event_ts > server_ts + <event_future_tolerance_minutes> phút then server_ts else event_ts end"

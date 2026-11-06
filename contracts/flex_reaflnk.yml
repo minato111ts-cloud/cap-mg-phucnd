@@ -4,6 +4,7 @@ table_kind: entity_snapshot
 capture_mode: full_snapshot
 format: csv
 business_key: [AUTOID]
+business_key_reason: "AUTOID là mã dòng FLEX, giữ nguyên qua các bản chụp khi nguồn sửa TODATE (AUTOID 216: TODATE đổi ở lô CAP-MG-0080), nên một phân công giữ một khóa; không dùng cặp (REACCTNO, AFACCTNO) vì cùng cặp có thể giao lại ở khoảng hiệu lực khác; không dùng FRDATE vì nguồn được phép sửa ngày hiệu lực"
 grain: "Một bản ghi phân công môi giới chăm sóc tiểu khoản có khoảng hiệu lực [FRDATE, TODATE] tại một bản chụp"
 event_ts:
   expr: "commit_ts của lô trong manifest.csv"

@@ -4,6 +4,7 @@ table_kind: entity_snapshot
 capture_mode: full_snapshot
 format: csv
 business_key: [GRPID]
+business_key_reason: "GRPID là mã đơn vị FLEX, không trùng trong bản chụp nào (19 lô, 11 mã); PARENTID, EFFDATE đổi được theo thời gian (G4: CN2 -> CN1) nên là thuộc tính và quan hệ, không vào khóa"
 grain: "Một đơn vị tổ chức (Hội sở, Chi nhánh, Nhóm) trong một bản chụp cuối ngày"
 event_ts:
   expr: "commit_ts của lô trong manifest.csv"

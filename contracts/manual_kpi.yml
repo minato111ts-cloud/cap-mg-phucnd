@@ -5,6 +5,7 @@ capture_mode: full_snapshot
 format: xlsx
 header_rows: 2      # dòng 1: tiêu đề nhóm (gộp ô C1:E1); dòng 2: tiêu đề cột C–E; cột A, B, F, G chỉ có tiêu đề ở dòng 1
 business_key: [broker_id]
+business_key_reason: "Mỗi phiên bản file có đúng một dòng cho một môi giới (23 mã, không trùng trong file); phiên bản phân biệt bằng ingested_ts của lô nên không vào khóa, satellite giữ cả hai phiên bản (TH-NHAPTAY)"
 grain: "Chỉ tiêu KPI Quý 2/2026 của một mã môi giới trong một phiên bản file Excel đã duyệt"
 event_ts:
   expr: "commit_ts của lô trong manifest.csv"

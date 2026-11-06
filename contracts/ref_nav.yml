@@ -4,6 +4,7 @@ table_kind: daily_log
 capture_mode: full_snapshot
 format: csv
 business_key: [TXDATE, AFACCTNO]
+business_key_reason: "NAV là số của một tiểu khoản trong một ngày: 19 ngày × 200 tiểu khoản = 3.800 dòng, không trùng cặp; đính chính ngày cũ phải ghi đúng ngày đó nên TXDATE nằm trong khóa"
 grain: "Giá trị tài sản ròng (NAV) cuối ngày của một tiểu khoản tại ngày giao dịch TXDATE"
 event_ts:
   expr: "commit_ts của lô trong manifest.csv"
