@@ -438,7 +438,7 @@ Sửa lại mô tả phép thử âm ở đầu `test_stg_keyts.sql`.
 Đã xong ngày 02/11/2026: dựng lại database thật và chạy `uv run dbt`, `uv run pytest` trên máy thật (xem "Môi trường kiểm chứng"); chuyển sang nhánh `feat/cap-mg-phucnd`; README (D-RUNBOOK); `docs/matran_test.md` (D-TEST, phần staging).
 
 1. ~~Raw vault gọi `{{ dv_window() }}` và tự khử trùng giữa các lô; khóa vắng khỏi bản chụp mới thì ghi nhận xóa.~~ Đã xong 02/11/2026: xem `docs/ky_thuat_raw_vault.md`. Khóa vắng mặt ghi ở bảng `sts_*` thay cho `is_deleted` của DEC-MG-D4 (RV-03).
-2. Business Vault phải tách người theo `[join_date, leave_date]` (KT-02), tính `is_active` (KT-15), chọn phân công khi chồng lấn (DEC-CAP-MG-OVERLAP; 12 cặp chồng lấn trong cùng lô ở dữ liệu đề) và bắt bẫy `FRDATE < JOINDATE` của BRK017 bằng phép ghép theo hiệu lực (môi giới và phân công nằm ở các lô khác nhau nên staging không ghép được).
-3. D-DQ: bảng `dq_*` và `docs/chatluong.md` dựng từ các view `__rejected` và `test_stg_attr_nulled`, cùng cách đếm với GT-STG-RECON.
+2. ~~Business Vault phải tách người theo `[join_date, leave_date]` (KT-02), tính `is_active` (KT-15), chọn phân công khi chồng lấn (DEC-CAP-MG-OVERLAP; 12 cặp chồng lấn trong cùng lô ở dữ liệu đề) và bắt bẫy `FRDATE < JOINDATE` của BRK017 bằng phép ghép theo hiệu lực (môi giới và phân công nằm ở các lô khác nhau nên staging không ghép được).~~ Đã xong: `docs/ky_thuat_asof_bv.md`.
+3. ~~D-DQ: bảng `dq_*` và `docs/chatluong.md` dựng từ các view `__rejected` và `test_stg_attr_nulled`, cùng cách đếm với GT-STG-RECON.~~ Đã xong: `mart.dq_mg_daily`, `docs/chatluong.md`.
 4. Loader: chuẩn hóa ô Excel dạng ngày (`YYYY-MM-DD`) và số (định dạng cố định) trước khi ghi landing (xem "Ghi nhận, không sửa").
-5. Chạy lại trên máy thật các phép thử âm KT-07 còn ghi kết quả của môi trường thay thế.
+5. ~~Chạy lại trên máy thật các phép thử âm KT-07 còn ghi kết quả của môi trường thay thế.~~ Đã xong 06/11/2026: `docs/matran_test.md`.

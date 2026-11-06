@@ -132,6 +132,7 @@ Lô không có lỗi có một dòng với `reason_code` NULL.
 | TC-CAP-MG-RLS | `tests/gold/test_rls.py` | Theo đề: cho BRK003 xem tiểu khoản của BRK009, ngày 11/05 | Đỏ, thừa `9994000001…` |
 | D-DQ khớp sổ | `test_gold_dq_recon.sql` | Bỏ dòng `DUPLICATE_EVENT` của `__rejected` | Đỏ 1 (lô `CAP-MG-0060`) |
 | REBUILD (QT-DAY-REBUILD) | grain và PT-FULL | Bỏ `asof_day_delete` khỏi pre_hook của Gold, dựng lại 05/05 | Đỏ (24 môi giới, 5 lô trùng) |
+| DQ-QUYEN, TH-NHAPTAY, TH-NGHIVIEC, DEC-CAP-MG-BROKERKEY | `tests/gold/test_care_metrics.py` (8 test) | Xem `docs/matran_test.md`, mục Gold | Đỏ cả 8 |
 
 **Hai lần xanh suông đã phát hiện và sửa:**
 - Phép thử tổng khớp vault lần đầu chỉ bỏ điều kiện `business_date`. Phép nối theo con trỏ `ingested_ts` vẫn chỉ lấy NAV của ngày D, nên phép thử không làm sai số. Lần thứ hai bỏ hẳn con trỏ thì test đỏ.

@@ -254,6 +254,8 @@ Sau khi sửa, trên database thật: `dbt build` PASS 69, WARN 1, ERROR 0; pyte
 
 ## 6. Việc còn lại
 
+Danh sách tại thời điểm viết nhật ký, giữ nguyên. Trạng thái 06/11/2026: mục 1, 3, 4, 6 đã xong; mục 2 còn mở (xem `docs/ky_thuat_landing_staging.md`); mục 5 giữ phẳng, ghi ở `docs/pr_description.md`.
+
 1. **Raw vault:** thiết kế đã đề xuất, chờ chốt hai điểm: quan hệ cây và môi giới – nhóm dùng link + esat (Q4) hay thuộc tính trong satellite; ghi nhận khóa biến mất bằng view staging dẫn xuất + `sts_*` (T-STS). Cần thêm runner (cửa sổ `lo_ts`/`hi_ts` từ `ctrl.batch_run`, T-GUARD) và seed `ref_bkcc`.
 2. **Loader:** chuẩn hóa ô Excel dạng ngày và số trước khi ghi landing, commit riêng.
 3. **D-DQ:** bảng `dq_*` và `docs/chatluong.md` từ các view `__rejected` và `test_stg_attr_nulled`.

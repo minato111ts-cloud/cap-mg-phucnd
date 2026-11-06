@@ -26,6 +26,8 @@ Capstone dbt Finova (`FNV-CAP-DBT v1.5`), đề `CAP-MG`. Luồng: gói đề `i
    uv sync
    ```
    Máy bật Application Control có thể chặn cả `.venv/Scripts/dbt.exe` (`os error 4551`). Khi đó gọi dbt qua Python, cùng bản đã ghim: `uv run python -c "from dbt.cli.main import cli; cli()" <lệnh dbt>` thay cho `uv run dbt <lệnh dbt>`; `check_khung.py` nhận lệnh này qua `--dbt-cmd`. Runner gọi dbt trong tiến trình Python nên không bị ảnh hưởng.
+
+   Windows chưa bật long paths thì đặt repo ở đường dẫn ngắn, dưới khoảng 115 ký tự. Gói `metricflow_semantic_interfaces` có file sâu hơn 140 ký tự trong `.venv`; đường dẫn đầy đủ vượt 260 ký tự thì `uv sync` vẫn xong nhưng dbt báo `ModuleNotFoundError` khi chạy.
 2. **Biến môi trường.** Chép `.env.example` thành `.env` (đã nằm trong `.gitignore`) và điền `FINOVA_PG_PASSWORD`, `CAP_DBNAME`. Mặc định của repo là cổng `5436` (container `finova-pg16-dev`, REQ-ENV-07); máy chạy PostgreSQL ở cổng khác thì đặt `CAP_PGPORT` trong `.env`, không sửa mặc định trong repo. Loader không tự đọc `.env`, nên mọi lệnh chạy qua `uv run --env-file .env`. Gói đề không nằm cạnh repo thì đặt `CAP_MG_KIT_DIR` (thư mục `CAP-MG`); loader, runner và pytest cùng đọc biến này.
 3. **dbt profile.** Chép `finova-dbt/profiles.example.yml` thành `finova-dbt/profiles.yml` (đã nằm trong `.gitignore`).
 4. **Database.** `python -m runner.init_db` tạo database `CAP_DBNAME` nếu chưa có, rồi chạy `setup/bootstrap.sql`, `setup/ctrl.sql`, `setup/ctrl_runner.sql`, `setup/ctrl_log.sql` bằng user `postgres`. Cả bốn file chạy lại nhiều lần không lỗi, nên lệnh này cũng vậy (chạy bằng `psql` từng file cũng được).
@@ -75,7 +77,7 @@ $env:RUN_PT_FULL = "1"; uv run --env-file .env pytest -q tests
 # 7. Test as-of (PT-ASOF-SINGLE, PT-NOFUTURE, TC-SLV-NOCUTOFF, TC-CAP-MG-FUTUREEFF) trên CAP_DBNAME; chỉ đọc
 uv run --env-file .env pytest -q tests/asof
 
-# 8. TC-CAP-MG-RLS: đọc Gold bằng role finova_app với từng người xem trong org_roles; chỉ đọc
+# 8. Test Gold: TC-CAP-MG-RLS đọc bằng role finova_app với từng người xem trong org_roles; DQ-QUYEN, TH-NHAPTAY, TH-NGHIVIEC, DEC-CAP-MG-BROKERKEY; chỉ đọc
 uv run --env-file .env pytest -q tests/gold
 
 # 9. Đáp án câu hỏi kiểm -> evidence/probes.csv (cần runner đã dựng Gold tới 15/05)
@@ -102,7 +104,7 @@ select broker_id, fr_date, to_date from asof.esat_reaflnk__flex where afacctno =
 
 Runner chạy cho database trống hoặc tiếp tục từ lần SUCCESS cuối trong `ctrl.batch_run`.
 
-Kết quả mong đợi trên gói đề (02/11/2026): loader 63 lô `LOADED` (5.959 dòng) và 41 lô `SKIPPED_DUP`; `dbt build` staging PASS 71, WARN 1 (DQ-MOCOI, G7 → CN9), ERROR 0; raw vault 19 bảng, WARN 1 (GT-HUB-NOMASTER, CN9); runner 19 lần chạy SUCCESS; 11 unit test PASS; 8 view as-of; Business Vault 4 bảng × 19 ngày, mỗi lần `cap_mg_bv` PASS 13; Gold 5 bảng × 19 ngày, mỗi lần `cap_mg_gold` PASS 20; `RUN_PT_FULL=1 pytest -q tests` 50 passed; `cap_mg_all` từ schema trống PASS 291, WARN 2; `runner.evidence` lệch 0 giữa ba lần chạy; `runner.probes` 11 dòng đáp án ở `evidence/probes.csv`.
+Kết quả mong đợi trên gói đề (kiểm lại 06/11/2026 trên bản clone sạch, database mới): loader 63 lô `LOADED` (5.959 dòng) và 41 lô `SKIPPED_DUP`; `dbt build` staging PASS 75, WARN 1 (DQ-MOCOI, G7 → CN9), ERROR 0; raw vault 19 bảng, WARN 1 (GT-HUB-NOMASTER, CN9); runner 19 lần chạy SUCCESS; 11 unit test PASS; 8 view as-of; Business Vault 4 bảng × 19 ngày, mỗi lần `cap_mg_bv` PASS 13; Gold 5 bảng × 19 ngày, mỗi lần `cap_mg_gold` PASS 20; `RUN_PT_FULL=1 pytest -q tests` 61 passed; `cap_mg_all` từ schema trống PASS 291, WARN 2; `runner.evidence` lệch 0 giữa ba lần chạy; `runner.probes` 11 dòng đáp án ở `evidence/probes.csv`.
 
 ## Tra lỗi
 
@@ -158,9 +160,12 @@ Sổ nạp của đề (`batch_log`, `load_reject`) giữ nguyên; dòng bị lo
 
 - `docs/khaosat.md`: khảo sát dữ liệu (D-KHAOSAT)
 - `docs/decisions.md`: quyết định nghiệp vụ `DEC-CAP-MG-*` (D-QUYETDINH)
-- `docs/ky_thuat_landing_staging.md`: sổ kỹ thuật landing và staging (`KT-01` đến `KT-22`)
-- `docs/ky_thuat_raw_vault.md`: sổ kỹ thuật raw vault và runner (`RV-01` đến `RV-09`)
-- `docs/ky_thuat_asof_bv.md`: sổ kỹ thuật tầng as-of và Business Vault (`AB-01` trở đi)
-- `docs/ky_thuat_gold.md`: sổ kỹ thuật tầng Gold, RLS, bảng chất lượng (`GD-01` trở đi)
+- `docs/ky_thuat_landing_staging.md`: sổ kỹ thuật landing và staging (`KT-01` đến `KT-23`)
+- `docs/nhatky_staging.md`: nhật ký nạp landing và dựng staging
+- `docs/ky_thuat_raw_vault.md`: sổ kỹ thuật raw vault và runner (`RV-01` đến `RV-12`)
+- `docs/ky_thuat_asof_bv.md`: sổ kỹ thuật tầng as-of và Business Vault (`AB-01` đến `AB-08`)
+- `docs/ky_thuat_gold.md`: sổ kỹ thuật tầng Gold, RLS, bảng chất lượng (`GD-01` đến `GD-08`)
 - `docs/chatluong.md`: báo cáo chất lượng theo ngày, giải thích từng mã lỗi (D-DQ, cùng `mart.dq_mg_daily`)
-- `docs/matran_test.md`: ma trận test và phép thử âm (D-TEST)
+- `docs/matran_test.md`: ma trận phủ DQ, TH, test và phép thử âm (D-TEST)
+- `docs/pr_description.md`: mô tả PR theo Phụ lục D (D-PR)
+- `docs/Báo cáo.pdf`: ghi chú tổng quan theo tầng, chuẩn bị cho viva

@@ -413,7 +413,7 @@ Tiêu chí lấy từ đề FNV-CAP-DBT v1.5: mốc kiểm tra (Bảng 3), mục
 | PT-FULL đạt: nạp từng lô theo ngày và nạp một lần cho cùng tập phiên bản (cổng 5) | ✅ | `test_pt_full_matches_daily`: số dòng và md5 của 19 bảng bằng nhau |
 | Không model nào dùng `now()`, `current_timestamp`, `current_date` (cổng 3, INV-T2) | ✅ | `check_khung.py --dbt` 22/22 ĐẠT (QT-NO-NOW); mẫu nạp chỉ lọc theo `ingested_ts` |
 | Chạy từ schema trống theo D-RUNBOOK, không sửa tay (cổng 1) | ✅ tới raw vault | Fixture `ptfull`: DB mới, bootstrap, ctrl, runner 19 ngày, theo README. Phần BV, Gold chưa có |
-| Câu hỏi kiểm về lô muộn, xóa, đính chính ra đúng (mốc Ngày 8) | ⬜ | Raw vault đã giữ đủ dữ liệu: G7 DELETED, G4 đổi cha, BRK017 có 3 phiên bản. Câu trả lời cần tầng as-of và Gold |
+| Câu hỏi kiểm về lô muộn, xóa, đính chính ra đúng (mốc Ngày 8) | ✅ | Xong ở Gold: `evidence/probes.csv`, `docs/ky_thuat_gold.md` GD-08 |
 
 **Ma trận test tầng raw vault (Bảng 24)**
 
@@ -458,7 +458,7 @@ Tiêu chí lấy từ đề FNV-CAP-DBT v1.5: mốc kiểm tra (Bảng 3), mục
 | PT-REVDATE | ✅ | 3 unit test cho T-SAT-DAY (NAV) và T-NHL, mỗi test có phép thử âm (RV-12). Dữ liệu đề không có lô đảo ngày |
 | PT-SOFTDELETE-STS | ➖ | Áp cho cờ DELTD (CAP-TS). CAP-MG xóa bằng vắng mặt khỏi bản chụp; phần này đã có `ut_sts_snapshot_absence` |
 | PT-CURHIST-MOVE, PT-REPLAY | ➖ | CAP-MG không có cặp bảng hiện hành – lịch sử, cũng không có nguồn phát lại |
-| PT-ASOF-SINGLE, PT-NOFUTURE, PT-APPMANUAL-CUTOFF | ⬜ | Kiểm ở tầng as-of, chưa làm |
+| PT-ASOF-SINGLE, PT-NOFUTURE, PT-APPMANUAL-CUTOFF | ✅ | Xong ở tầng as-of: `tests/asof/test_asof.py` |
 
 **Vận hành và nguyên tắc chung (mục 2.3.1, 2.4, 2.5)**
 
