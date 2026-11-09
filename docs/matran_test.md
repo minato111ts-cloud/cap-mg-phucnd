@@ -17,7 +17,7 @@ Mỗi lỗi và tình huống của đề: test nào, ở tầng nào, kết qu�
 | DQ-MOCOI | CANHBAO | Staging, raw vault | `test_stg_regrp_parent_missing` (warn), GT-HUB-NOMASTER (warn) | Warn 2 dòng (G7 → CN9); warn 1 khóa (CN9) |
 | DQ-VONG | LOAI | Staging, Business Vault | `test_stg_regrp_no_cycle`, TC-CAP-MG-TREE, `test_cycle_rows_never_reach_vault` | Xanh; 2 dòng `CYCLE_DETECTED` (G5, G6) |
 | DQ-CHONGLAN | QUYETDINH | Business Vault | TC-CAP-MG-ONEBROKER | Xanh; 3 tiểu khoản × 5 ngày phân xử cho BRK021 |
-| DQ-KHOA-TAISUDUNG | QUYETDINH | Staging, raw vault, Gold | `test_stg_broker_hk_consistent`, `test_broker_code_reuse_versions`, `test_dec_brokerkey_new_holder_has_no_old_interactions` | Xanh; BRK017 có 1 khóa hub, 3 phiên bản hồ sơ |
+| DQ-KHOA-TAISUDUNG | QUYETDINH | Staging, raw vault, Gold | `test_stg_broker_hk_consistent`, `test_broker_code_reuse_versions`, `test_dec_brokerkey_new_holder_has_no_old_interactions`, `ut_met_kpi_not_for_new_holder`, `ut_dq_kpi_not_for_holder_on_reuse_batch`, `test_gold_kpi_holder` | Xanh; BRK017 có 1 khóa hub, 3 phiên bản hồ sơ; 0 cờ `KPI_NOT_FOR_HOLDER` (gói đề không có chỉ tiêu BRK017, ca chặn thử bằng unit test) |
 | DQ-TRUNG-NGUYEN | SUA | Staging | GT-STG-UNIQUE (`test_stg_dedup`) | Xanh; 12 dòng `DUPLICATE_EVENT` |
 | DQ-TUONGLAI | SUA | Staging | TC-CAP-MG-EVENTTIME | Xanh; 6 dòng dùng `server_ts`, có cờ |
 | DQ-KHOA-NULL | LOAI | Staging | `test_dq_khoa_null_stays_out_of_valid_view`, GT-STG-RECON | Xanh; 4 dòng `KEY_NULL` |
@@ -234,6 +234,16 @@ Chỉ đọc, chạy trên `CAP_DBNAME`. Phép thử âm ngày 06/11/2026 trên 
 
 Dữ liệu đề không đủ để thử hai quy tắc này: điều kiện "vào ngày đang được giao" không đổi tử của môi giới nào, và không tiểu khoản nào mang cờ `is_carer_inactive`. Nếu chỉ sửa code thì test vẫn xanh, nên hai phép thử trên phải thêm dữ liệu giả.
 
+## Gold: chỉ tiêu theo người mang mã (`_gold__unit_tests.yml`, `tests/gold/test_gold_kpi_holder.sql`)
+
+Gói đề không có dòng chỉ tiêu nào của BRK017, và cả 38 dòng chỉ tiêu đều duyệt sau JOINDATE của người mang mã (ít nhất 485 ngày). Vì vậy chốt chặn không đổi số liệu của gói đề, và ca bị chặn phải thử bằng unit test trên dữ liệu giả. Phép thử âm ngày 10/11/2026 trên máy thật: tạm bỏ `gold_in_tenure` ở CTE `kpi` của `met_broker_daily` và `kpi_not_for_holder` của `dq_mg_daily`, rồi trả lại.
+
+| Mã | Test | Kiểm gì | Phép thử âm | Kết quả |
+|---|---|---|---|---|
+| DEC-CAP-MG-BROKERKEY | `ut_met_kpi_not_for_new_holder` | D = 12/05: BRK017 người mới (JOINDATE 11/05), chỉ tiêu duyệt 21/04 → NULL; BRK040 nghỉ 30/04, chỉ tiêu duyệt 06/05 → NULL; BRK003 duyệt trong khoảng làm việc → 440 (đối chứng) | Bỏ điều kiện khoảng làm việc ở CTE `kpi` | Đỏ: BRK017 nhận 300, BRK040 nhận 200 |
+| DQ-KHOA-TAISUDUNG | `ut_dq_kpi_not_for_holder_on_reuse_batch` | Mã cấp lại ở lô hồ sơ 12/05, chỉ tiêu duyệt cho người cũ: một dòng `KPI_NOT_FOR_HOLDER` ở lô hồ sơ, khóa mẫu BRK017; lô chỉ tiêu ngoài cửa sổ nên không có dòng | Thay điều kiện bằng `false` | Đỏ: mất dòng `KPI_NOT_FOR_HOLDER` |
+| DEC-CAP-MG-BROKERKEY | `test_gold_kpi_holder.sql` (dbt, tag `gold`) | Mọi ngày: chỉ tiêu ở `met_broker_daily` duyệt trong khoảng làm việc (đọc satellite raw, không qua macro); chỉ tiêu PIT trỏ tới mà không áp thì có cờ ở `dq_mg_daily` | Không có ca trên gói đề | Xanh 19 ngày; chỉ chặn hồi quy |
+
 Câu hỏi kiểm (Bảng 74): 8 file SQL ở `evidence/probes/`, `python -m runner.probes` ghi `evidence/probes.csv` (11 dòng).
 
 ## Đầu cuối (`tests/e2e/test_e2e.py`)
@@ -243,7 +253,15 @@ Câu hỏi kiểm (Bảng 74): 8 file SQL ở `evidence/probes/`, `python -m run
 | TC-CAP-E2E | `test_tc_cap_e2e_assignment_lineage` | Mọi tiểu khoản có phân công ở `dim_account_care_daily`, mọi ngày: lần được qua `bridge_account_broker` → `asof.esat_reaflnk__flex` (GUC của D) → `sat_reaflnk__flex` (cùng `ingested_ts`, `hash_diff`) → `stg_flex__reaflnk` → đúng dòng `landing.flex_reaflnk` (AUTOID, REACCTNO, AFACCTNO khớp); báo mắt xích đứt theo tầng | Đổi AUTOID một dòng `landing.flex_reaflnk` (lô `CAP-MG-0003`) | Đỏ: `9994000005` đứt ở RAW->STAGING mọi ngày |
 | TC-CAP-E2E | `test_tc_cap_e2e_booknav_from_landing` | CAP-MG-BOOKNAV mỗi môi giới, mỗi ngày = Σ NAV lần ngược từ PIT qua raw, `stg_flex__nav` tới dòng `landing.ref_nav` | Đổi NAV ở `landing.ref_nav` của `9994000001` ngày 05/05 (staging ra NAV, hashdiff mới nên chuỗi đứt) | Đỏ: BRK003 ngày 05/05 lệch đúng NAV tiểu khoản đó. Lần đầu sửa NAV ở raw thì xanh suông: `hash_diff` không đổi và Gold đã dựng từ trước, nên hai vế cùng không bị tác động |
 
-## Kết quả lần chạy gần nhất (máy thật, 06/11/2026, bản clone sạch)
+## Kết quả lần chạy gần nhất (máy thật, 10/11/2026, sau chốt chặn chỉ tiêu theo người mang mã)
+
+- Gold 19 ngày dựng lại trên `cap_mg_phucnd`: mỗi ngày `cap_mg_gold` PASS 21 (thêm `test_gold_kpi_holder`), ERROR 0. `met_broker_daily` vẫn 456 dòng, 323 dòng có chỉ tiêu; `dq_mg_daily` 111 dòng, 0 cờ `KPI_NOT_FOR_HOLDER`.
+- `runner.evidence`: 59 bảng, view, lệch 0. md5 mọi bảng `mart` như bản trước; chỉ `ref_dq_reason` từ 22 lên 23 dòng. `runner.probes`: `evidence/probes.csv` không đổi.
+- `RUN_PT_FULL=1 pytest -q tests`: 61 passed, 16 phút 8 giây.
+- D-DBT trên database mới (landing đã nạp, schema dbt trống), D = 15/05: `cap_mg_all` PASS 292, WARN 2 (DQ-MOCOI, GT-HUB-NOMASTER), ERROR 0; `dbt test --select test_type:unit` PASS 13 (11 unit test, 2 hook).
+- Phép thử âm của hai unit test mới: xem mục "Gold: chỉ tiêu theo người mang mã".
+
+## Kết quả lần chạy trước (máy thật, 06/11/2026, bản clone sạch)
 
 Chạy trên bản clone sạch của nhánh, database mới `cap_mg_phucnd_verify`, Python của `.venv` cùng `uv.lock`.
 

@@ -1,0 +1,131 @@
+version: 2
+
+# Unit test Gold trên dữ liệu giả cho ca gói đề không có: chỉ tiêu duyệt ngoài khoảng làm việc của người mang mã
+# (DEC-CAP-MG-BROKERKEY, DQ-KHOA-TAISUDUNG). Khóa băm giả dạng bytea hex ('\x01'); expect chỉ dùng cột text, số
+# (xem _raw__unit_tests.yml). Input không liên quan để rows: [], dbt lấy kiểu cột từ bảng đã dựng. Bảng có cột mảng
+# (batch_log.flag_codes, dim_broker_org_daily.scope_ids) dbt-postgres không cast được, nên khai bằng format: sql với
+# đúng các cột model đọc.
+# Phép thử âm ghi ở docs/matran_test.md.
+
+unit_tests:
+  - name: ut_met_kpi_not_for_new_holder
+    description: >
+      Chỉ tiêu chỉ áp khi ngày duyệt nằm trong [join_date, leave_date] của người mang mã tại D. BRK017 cấp lại cho
+      người mới từ 11/05, chỉ tiêu duyệt 21/04 (cho người cũ): không có chỉ tiêu. BRK040 nghỉ 30/04, chỉ tiêu duyệt
+      06/05: không có. BRK003 duyệt trong khoảng làm việc: có (đối chứng, test không xanh suông).
+    model: met_broker_daily
+    overrides:
+      vars: {as_of_date: "2026-05-12"}
+      macros: {is_incremental: false}
+    given:
+      - input: ref('dim_broker_org_daily')
+        format: sql
+        rows: |
+          select as_of_date::date, broker_hk::bytea, broker_key, broker_id, join_date::date, leave_date::date
+          from (values
+              ('2026-05-12', '\x01', 'BRK017:2026-05-11', 'BRK017', '2026-05-11', null),
+              ('2026-05-12', '\x02', 'BRK003:2024-01-02', 'BRK003', '2024-01-02', null),
+              ('2026-05-12', '\x03', 'BRK040:2024-01-02', 'BRK040', '2024-01-02', '2026-04-30')
+          ) as t (as_of_date, broker_hk, broker_key, broker_id, join_date, leave_date)
+      - input: ref('pit_broker_daily')
+        rows:
+          - {as_of_date: 2026-05-12, broker_hk: '\x01', sat_broker_kpi_ingested_ts: '2026-04-21 15:00:00+07'}
+          - {as_of_date: 2026-05-12, broker_hk: '\x02', sat_broker_kpi_ingested_ts: '2026-04-21 15:00:00+07'}
+          - {as_of_date: 2026-05-12, broker_hk: '\x03', sat_broker_kpi_ingested_ts: '2026-05-06 16:30:00+07'}
+      - input: ref('asof__sat_broker_kpi__manual')
+        rows:
+          - {broker_hk: '\x01', ingested_ts: '2026-04-21 15:00:00+07', record_source: manual.manual_kpi, target_calls: 300, approved_date: 2026-04-21}
+          - {broker_hk: '\x02', ingested_ts: '2026-04-21 15:00:00+07', record_source: manual.manual_kpi, target_calls: 440, approved_date: 2026-04-21}
+          - {broker_hk: '\x03', ingested_ts: '2026-05-06 16:30:00+07', record_source: manual.manual_kpi, target_calls: 200, approved_date: 2026-05-06}
+      - input: source('ctrl', 'batch_log')
+        format: sql
+        rows: |
+          select log_id::bigint, batch_id, source_table, ingested_ts::timestamptz, status
+          from (values
+              (1, 'CAP-MG-0103', 'manual_kpi', '2026-04-21 15:00:00+07', 'LOADED'),
+              (2, 'CAP-MG-0104', 'manual_kpi', '2026-05-06 16:30:00+07', 'LOADED')
+          ) as t (log_id, batch_id, source_table, ingested_ts, status)
+      - input: ref('dim_account_care_daily')
+        rows: []
+      - input: ref('pit_account_daily')
+        rows: []
+      - input: ref('asof__sat_account_nav_daily__flex')
+        rows: []
+      - input: ref('asof__nhl_broker_event')
+        rows: []
+      - input: ref('asof__sat_reaflnk__flex')
+        rows: []
+      - input: ref('asof__link_reaflnk')
+        rows: []
+    expect:
+      rows:
+        - {broker_key: 'BRK017:2026-05-11', kpi_target_calls: null, kpi_batch_id: null}
+        - {broker_key: 'BRK003:2024-01-02', kpi_target_calls: 440, kpi_batch_id: CAP-MG-0103}
+        - {broker_key: 'BRK040:2024-01-02', kpi_target_calls: null, kpi_batch_id: null}
+
+  - name: ut_dq_kpi_not_for_holder_on_reuse_batch
+    description: >
+      DQ-KHOA-TAISUDUNG: mã BRK017 cấp lại ở lô hồ sơ 12/05, chỉ tiêu PIT trỏ tới duyệt 21/04 cho người cũ. Cờ
+      KPI_NOT_FOR_HOLDER gắn vào lô hồ sơ (con trỏ mới hơn) của ngày 12/05; lô chỉ tiêu 21/04 ngoài cửa sổ nên không
+      có dòng.
+    model: dq_mg_daily
+    overrides:
+      vars: {as_of_date: "2026-05-12"}
+      macros: {is_incremental: false}
+    given:
+      - input: ref('ref_calendar')
+        rows:
+          - {calendar_date: 2026-05-11, is_trading_day: 1}
+          - {calendar_date: 2026-05-12, is_trading_day: 1}
+      - input: source('ctrl', 'batch_log')
+        format: sql
+        rows: |
+          select log_id::bigint, batch_id, source_table, business_date::date, ingested_ts::timestamptz, status,
+                 reason_code, rows_loaded::integer
+          from (values
+              (1, 'CAP-MG-0103', 'manual_kpi', '2026-04-21', '2026-04-21 15:00:00+07', 'LOADED', null, 23),
+              (2, 'CAP-MG-0090', 'flex_broker', '2026-05-12', '2026-05-12 22:01:00+07', 'LOADED', null, 24)
+          ) as t (log_id, batch_id, source_table, business_date, ingested_ts, status, reason_code, rows_loaded)
+      - input: ref('pit_broker_daily')
+        rows:
+          - {as_of_date: 2026-05-12, broker_hk: '\x01', sat_broker_profile_ingested_ts: '2026-05-12 22:01:00+07', sat_broker_kpi_ingested_ts: '2026-04-21 15:00:00+07'}
+      - input: ref('asof__sat_broker_profile__flex')
+        rows:
+          - {broker_hk: '\x01', ingested_ts: '2026-05-12 22:01:00+07', record_source: flex.flex_broker, broker_id: BRK017, join_date: 2026-05-12, leave_date: null}
+      - input: ref('asof__sat_broker_kpi__manual')
+        rows:
+          - {broker_hk: '\x01', ingested_ts: '2026-04-21 15:00:00+07', record_source: manual.manual_kpi, broker_id: BRK017, approved_date: 2026-04-21}
+      - input: ref('ref_dq_reason')
+        rows:
+          - {reason_code: KPI_NOT_FOR_HOLDER, defect_code: DQ-KHOA-TAISUDUNG, handling: QUYETDINH, test_id: ut_met_kpi_not_for_new_holder}
+      - input: ref('asof__sat_reaflnk__flex')
+        rows: []
+      - input: ref('asof__link_reaflnk')
+        rows: []
+      - input: ref('stg_flex__regrp')
+        rows: []
+      - input: ref('stg_flex__regrp__rejected')
+        rows: []
+      - input: ref('stg_flex__broker')
+        rows: []
+      - input: ref('stg_flex__broker__rejected')
+        rows: []
+      - input: ref('stg_flex__reaflnk')
+        rows: []
+      - input: ref('stg_flex__reaflnk__rejected')
+        rows: []
+      - input: ref('stg_flex__nav')
+        rows: []
+      - input: ref('stg_flex__nav__rejected')
+        rows: []
+      - input: ref('stg_finova_app__events')
+        rows: []
+      - input: ref('stg_finova_app__events__rejected')
+        rows: []
+      - input: ref('stg_manual__kpi')
+        rows: []
+      - input: ref('stg_manual__kpi__rejected')
+        rows: []
+    expect:
+      rows:
+        - {batch_id: CAP-MG-0090, source_table: flex_broker, rows_landing: 24, reason_code: KPI_NOT_FOR_HOLDER, defect_code: DQ-KHOA-TAISUDUNG, key_count: 1, key_sample: BRK017}

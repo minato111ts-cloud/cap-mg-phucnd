@@ -36,7 +36,7 @@ Không dựng bảng tổng hợp theo đơn vị:
 
 **Runner:** với mỗi ngày D, chạy `cap_mg_bv` rồi `cap_mg_gold`. Full refresh dựng lại cả hai cho từng ngày giao dịch, ngày đầu kèm `--full-refresh`.
 
-**`cap_mg_all` từ schema trống (D-DBT):** PASS 291, WARN 2 (DQ-MOCOI, GT-HUB-NOMASTER), ERROR 0 với một ngày D = 15/05. Selector loại unit test: unit test giả lập `{{ this }}` của model incremental cần bảng đã có để lấy kiểu cột; lần đầu chạy, 4 unit test lỗi kéo 73 node phía sau bị bỏ qua. Unit test chạy sau bằng `dbt test --select test_type:unit` (11 PASS).
+**`cap_mg_all` từ schema trống (D-DBT):** PASS 292, WARN 2 (DQ-MOCOI, GT-HUB-NOMASTER), ERROR 0 với một ngày D = 15/05. Selector loại unit test: unit test giả lập `{{ this }}` của model incremental cần bảng đã có để lấy kiểu cột; lần đầu chạy, 4 unit test lỗi kéo 73 node phía sau bị bỏ qua. Unit test chạy sau bằng `dbt test --select test_type:unit` (PASS 13: 11 unit test, 2 hook).
 
 **Selector:** chế độ chọn test eager sẽ kéo một test vào bất kỳ selector nào chọn một model cha của nó. Test Gold đọc staging, raw, BV, nên `cap_mg_staging`, `cap_mg_raw`, `cap_mg_bv`, `cap_mg_asof` đều loại tag `gold`. Đây là cùng lý do `cap_mg_raw` loại `dv_bv`.
 
@@ -71,7 +71,10 @@ Registry nằm ở `meta.metric` của các cột trong `_gold__models.yml`: mã
   - Tử: tiểu khoản được chăm sóc tại D có tương tác của chính người đó trong 30 ngày, vào ngày người đó đang được giao tiểu khoản theo phân công hệ thống biết tại cutoff(D).
   - Mẫu: `n_accounts`.
   - Lưu riêng tử và mẫu để cấp trên cộng tử, cộng mẫu rồi mới chia.
-- **`kpi_target_calls`, `kpi_batch_id`:** phiên bản chỉ tiêu do `pit_broker_daily` trỏ tới tại cutoff(D) (TH-NHAPTAY). Lô của phiên bản tra ở `ctrl.batch_log` theo (`source_table`, `ingested_ts`).
+- **`kpi_target_calls`, `kpi_batch_id`:**
+  - Phiên bản chỉ tiêu do `pit_broker_daily` trỏ tới tại cutoff(D) (TH-NHAPTAY). Lô của phiên bản tra ở `ctrl.batch_log` theo (`source_table`, `ingested_ts`).
+  - Chỉ áp khi `approved_date` nằm trong `[join_date, leave_date]` của người mang mã (DEC-CAP-MG-BROKERKEY). Ngoài khoảng thì ba cột chỉ tiêu NULL và `dq_mg_daily` có cờ `KPI_NOT_FOR_HOLDER`. Lý do so `approved_date` chứ không so `ingested_ts`: file chỉ tiêu là bản chụp đầy đủ, bản sau có thể chép nguyên dòng duyệt cho người cũ, khi đó `ingested_ts` mới nhưng ngày duyệt vẫn cũ.
+  - Điều kiện khoảng làm việc của tương tác và chỉ tiêu dùng chung macro `gold_in_tenure` (`macros/gold/gold.sql`).
 - **`calls_qtd`** (flow): sự kiện `CALL` (mã trong danh mục `event_type.csv`) từ đầu quý tới D, trong khoảng làm việc.
 
 Không có chỉ số "hiện tại": mọi dòng mang `as_of_date`, `cutoff_ts` (INV-SEM-ASOF).
@@ -108,6 +111,7 @@ Không có chỉ số "hiện tại": mọi dòng mang `as_of_date`, `cutoff_ts`
   - `PARENT_MISSING` (DQ-MOCOI, xét trong cùng bản chụp);
   - `ASSIGNMENT_OVERLAP` (DQ-CHONGLAN: hai môi giới, khoảng hiệu lực giao nhau, trong cùng bản chụp);
   - `KEY_REUSED` (DQ-KHOA-TAISUDUNG: mã môi giới mang JOINDATE khác phiên bản trước);
+  - `KPI_NOT_FOR_HOLDER` (DQ-KHOA-TAISUDUNG: chỉ tiêu PIT trỏ tới duyệt ngoài khoảng làm việc của người đang mang mã, nên không áp). Cờ gắn vào lô của con trỏ mới hơn: lô chỉ tiêu nếu file đến sau, lô hồ sơ nếu mã cấp lại sau. Lô đó chỉ nằm trong cửa sổ của ngày phát sinh, nên cờ hiện một lần. Gói đề không có ca này (0 dòng);
   - `EVENT_NOT_ASSIGNED` (DQ-QUYEN, theo phân công hệ thống biết tại cutoff(D));
 - `reason_code` của sổ nạp với lô không nạp (`DUP_CONTENT`, lỗi file).
 
@@ -133,6 +137,7 @@ Lô không có lỗi có một dòng với `reason_code` NULL.
 | D-DQ khớp sổ | `test_gold_dq_recon.sql` | Bỏ dòng `DUPLICATE_EVENT` của `__rejected` | Đỏ 1 (lô `CAP-MG-0060`) |
 | REBUILD (QT-DAY-REBUILD) | grain và PT-FULL | Bỏ `asof_day_delete` khỏi pre_hook của Gold, dựng lại 05/05 | Đỏ (24 môi giới, 5 lô trùng) |
 | DQ-QUYEN, TH-NHAPTAY, TH-NGHIVIEC, DEC-CAP-MG-BROKERKEY | `tests/gold/test_care_metrics.py` (8 test) | Xem `docs/matran_test.md`, mục Gold | Đỏ cả 8 |
+| DEC-CAP-MG-BROKERKEY (chỉ tiêu) | `ut_met_kpi_not_for_new_holder`, `ut_dq_kpi_not_for_holder_on_reuse_batch` (`_gold__unit_tests.yml`), `test_gold_kpi_holder.sql` | Bỏ điều kiện `gold_in_tenure` ở CTE `kpi` của `met_broker_daily` và `kpi_not_for_holder` của `dq_mg_daily` | Đỏ cả 2 unit test: BRK017 người mới nhận 300, BRK040 đã nghỉ nhận 200; mất cờ `KPI_NOT_FOR_HOLDER` |
 
 **Hai lần xanh suông đã phát hiện và sửa:**
 - Phép thử tổng khớp vault lần đầu chỉ bỏ điều kiện `business_date`. Phép nối theo con trỏ `ingested_ts` vẫn chỉ lấy NAV của ngày D, nên phép thử không làm sai số. Lần thứ hai bỏ hẳn con trỏ thì test đỏ.

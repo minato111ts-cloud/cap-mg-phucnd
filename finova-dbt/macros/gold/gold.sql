@@ -42,3 +42,11 @@ create policy p_viewer on {{ relation }} for select to {{ var('gold_reader_role'
     (select max(c.calendar_date) from {{ ref('ref_calendar') }} as c
      where c.is_trading_day = 1 and c.calendar_date < {{ asof_var_date() }})
 {%- endmacro %}
+
+
+{# Ngày nằm trong khoảng làm việc [join_date, leave_date] của người mang mã ở alias (DEC-CAP-MG-BROKERKEY): mã cấp
+   lại không kéo tương tác, chỉ tiêu của người cũ sang người mới. join_date, leave_date NULL thì không chặn đầu đó. #}
+{% macro gold_in_tenure(date_expr, alias) -%}
+    ({{ alias }}.join_date is null or {{ date_expr }} >= {{ alias }}.join_date)
+    and ({{ alias }}.leave_date is null or {{ date_expr }} <= {{ alias }}.leave_date)
+{%- endmacro %}

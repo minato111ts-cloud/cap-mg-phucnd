@@ -10,8 +10,8 @@
 
 -- Chỉ số môi giới tại D, grain: (business_date, broker_key). Mẫu T-GOLD-DAY. Định nghĩa theo Bảng 72, registry ngữ
 -- nghĩa ở _gold__models.yml. Mọi môi giới trong hồ sơ as-of D, kể cả người không chăm sóc tiểu khoản nào.
--- Tương tác chỉ tính khi ngày sự kiện nằm trong khoảng làm việc [join_date, leave_date] của người đang mang mã
--- (DEC-CAP-MG-BROKERKEY: mã cấp lại không kéo tương tác của người cũ sang người mới).
+-- Tương tác chỉ tính khi ngày sự kiện, chỉ tiêu chỉ áp khi ngày duyệt, nằm trong khoảng làm việc [join_date, leave_date]
+-- của người đang mang mã (DEC-CAP-MG-BROKERKEY: mã cấp lại không kéo tương tác, chỉ tiêu của người cũ sang người mới).
 -- RLS: người xem thấy chỉ số của môi giới mình thấy ở dim_broker_org_daily.
 with broker as (
     select broker_hk, broker_key, broker_id, join_date, leave_date
@@ -44,8 +44,7 @@ event as (
     inner join {{ ref('asof__nhl_broker_event') }} as e on e.broker_hk = b.broker_hk
     where e.event_date <= {{ asof_var_date() }}
       and e.event_date >= least({{ asof_var_date() }} - 29, date_trunc('quarter', {{ asof_var_date() }})::date)
-      and (b.join_date is null or e.event_date >= b.join_date)
-      and (b.leave_date is null or e.event_date <= b.leave_date)
+      and {{ gold_in_tenure('e.event_date', 'b') }}
 ),
 
 -- mọi khoảng phân công hệ thống biết tại cutoff(D), để xét "ngày môi giới đang được giao tiểu khoản" (COVER30).
@@ -102,16 +101,20 @@ covered_agg as (
     group by broker_key
 ),
 
--- chỉ tiêu: phiên bản trỏ bởi PIT tại cutoff(D) (TH-NHAPTAY); lô của phiên bản tra ở sổ nạp
+-- chỉ tiêu: phiên bản trỏ bởi PIT tại cutoff(D) (TH-NHAPTAY), chỉ áp khi ngày duyệt nằm trong khoảng làm việc của
+-- người mang mã; duyệt ngoài khoảng (vd cho người cũ của mã cấp lại) thì không có chỉ tiêu, cờ KPI_NOT_FOR_HOLDER ở
+-- dq_mg_daily. Lô của phiên bản tra ở sổ nạp
 kpi as (
     select
-        p.broker_hk,
+        b.broker_key,
         k.target_calls,
         k.ingested_ts as kpi_ingested_ts,
         bl.batch_id as kpi_batch_id
     from {{ ref('pit_broker_daily') }} as p
+    inner join broker as b on b.broker_hk = p.broker_hk
     inner join {{ ref('asof__sat_broker_kpi__manual') }} as k
         on k.broker_hk = p.broker_hk and k.ingested_ts = p.sat_broker_kpi_ingested_ts
+       and {{ gold_in_tenure('k.approved_date', 'b') }}
     left join (
         select distinct on (source_table, ingested_ts) source_table, ingested_ts, batch_id
         from {{ source('ctrl', 'batch_log') }}
@@ -145,7 +148,7 @@ final as (
     left join account_agg as a on a.broker_key = b.broker_key
     left join event_agg as e on e.broker_key = b.broker_key
     left join covered_agg as cv on cv.broker_key = b.broker_key
-    left join kpi as k on k.broker_hk = b.broker_hk
+    left join kpi as k on k.broker_key = b.broker_key
 )
 
 select * from final

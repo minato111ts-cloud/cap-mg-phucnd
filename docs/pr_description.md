@@ -27,7 +27,7 @@ D-VIVA trình bày trực tiếp. `docs/Báo cáo.pdf` là ghi chú tổng quan 
 | Tiêu chí | Lệnh | Kết quả |
 |---|---|---|
 | Chạy từ schema trống theo D-RUNBOOK | Bản clone sạch, database mới: `runner.init_db`, `runner.run`, `runner.probes` | 19 lần chạy SUCCESS; `evidence/probes.csv` trùng từng dòng |
-| D-DBT xanh từ schema trống | `dbt build --selector cap_mg_all`, D = 15/05 | PASS 291, WARN 2, ERROR 0 |
+| D-DBT xanh từ schema trống | `dbt build --selector cap_mg_all`, D = 15/05 | PASS 292, WARN 2, ERROR 0 |
 | Unit test | `dbt test --select test_type:unit` | 11 PASS |
 | Loader, test các tầng | `RUN_PT_FULL=1 pytest -q tests` | 61 test: 50 passed trên bản clone sạch, 11 test mới passed trên database dựng mới |
 | Khung project | `check_khung.py --repo . --de MG --dbt` | 22 ĐẠT, 0 KHÔNG ĐẠT (`evidence/khung.json`) |

@@ -103,7 +103,9 @@ models:
           metric: {code: CAP-MG-COVER30, type: ratio, empty: null, numerator: cover30_num, denominator: cover30_den,
                    definition: "Tử: tiểu khoản môi giới chăm sóc tại D có ít nhất một tương tác hợp lệ của chính môi giới đó trong 30 ngày lịch kết thúc tại D, vào ngày môi giới đang được giao tiểu khoản đó (phân công hệ thống biết tại cutoff(D)). Mẫu: tiểu khoản môi giới chăm sóc tại D. Lên cấp trên: cộng tử, cộng mẫu rồi chia; mẫu 0 thì NULL"}
       - name: kpi_target_calls
-        description: "Chỉ tiêu cuộc gọi quý, phiên bản PIT trỏ tới tại cutoff(D) (TH-NHAPTAY)"
+        description: >
+          Chỉ tiêu cuộc gọi quý, phiên bản PIT trỏ tới tại cutoff(D) (TH-NHAPTAY); NULL khi ngày duyệt ngoài khoảng làm
+          việc [join_date, leave_date] của người mang mã (DEC-CAP-MG-BROKERKEY, cờ KPI_NOT_FOR_HOLDER ở dq_mg_daily)
       - name: calls_qtd
         description: "Số cuộc gọi lũy kế quý"
         meta:

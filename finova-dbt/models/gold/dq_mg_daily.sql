@@ -4,8 +4,8 @@
 -- ingested_ts: xếp theo business_date trong (ngày giao dịch liền trước, D].
 -- Mỗi lô: rows_landing (= batch_log.rows_loaded), rows_valid, rows_rejected đếm từ view staging hợp lệ và __rejected
 -- (rows_landing = rows_valid + rows_rejected, GT-STG-RECON). Mỗi lỗi một dòng: reason_code của __rejected, hoặc mã
--- cờ không loại dòng (FUTURE_TS_FIXED, PARENT_MISSING, EVENT_NOT_ASSIGNED, ASSIGNMENT_OVERLAP, KEY_REUSED), hoặc
--- reason_code của batch_log với lô
+-- cờ không loại dòng (FUTURE_TS_FIXED, PARENT_MISSING, EVENT_NOT_ASSIGNED, ASSIGNMENT_OVERLAP, KEY_REUSED,
+-- KPI_NOT_FOR_HOLDER), hoặc reason_code của batch_log với lô
 -- không nạp. Lô không có lỗi: một dòng reason_code NULL. Mã DQ, hướng xử lý, test theo seed ref_dq_reason.
 {%- set sources = [
     ('flex_regrp', 'stg_flex__regrp', 'grpid'),
@@ -46,6 +46,23 @@ batch as (
     where (l.ingested_ts is not null and l.ingested_ts > w.lo_ts and l.ingested_ts <= w.hi_ts)
        or (l.ingested_ts is null and (w.prev_day is null or l.business_date > w.prev_day)
            and l.business_date <= {{ asof_var_date() }})
+),
+
+-- DQ-KHOA-TAISUDUNG: chỉ tiêu PIT trỏ tới tại cutoff(D) duyệt ngoài khoảng làm việc của người đang mang mã, nên
+-- met_broker_daily không áp. Gắn vào lô của phiên bản mới hơn trong hai con trỏ (file chỉ tiêu đến sau, hoặc mã cấp
+-- lại sau): lô đó chỉ nằm trong cửa sổ của ngày phát sinh, nên cờ hiện đúng một lần
+kpi_not_for_holder as (
+    select
+        b.broker_id,
+        case when k.ingested_ts >= b.ingested_ts then k.record_source else b.record_source end as record_source,
+        greatest(k.ingested_ts, b.ingested_ts) as ingested_ts
+    from {{ ref('pit_broker_daily') }} as p
+    inner join {{ ref('asof__sat_broker_profile__flex') }} as b
+        on b.broker_hk = p.broker_hk and b.ingested_ts = p.sat_broker_profile_ingested_ts
+    inner join {{ ref('asof__sat_broker_kpi__manual') }} as k
+        on k.broker_hk = p.broker_hk and k.ingested_ts = p.sat_broker_kpi_ingested_ts
+    where p.as_of_date = {{ asof_var_date() }}
+      and not ({{ gold_in_tenure('k.approved_date', 'b') }})
 ),
 
 valid_count as (
@@ -97,6 +114,13 @@ issue as (
         from {{ ref('stg_flex__broker') }}
     ) as v
     where rn > 1 and join_date is distinct from prev_join_date
+    union all
+    -- DQ-KHOA-TAISUDUNG: chỉ tiêu không áp cho người đang mang mã (duyệt ngoài khoảng làm việc)
+    select l.source_table, l.batch_id, 'KPI_NOT_FOR_HOLDER', n.broker_id, false
+    from kpi_not_for_holder as n
+    inner join last_log as l
+        on l.status = 'LOADED' and l.source_table = split_part(n.record_source, '.', 2)
+       and l.ingested_ts = n.ingested_ts
     union all
     -- DQ-QUYEN: không có phân công của môi giới cho tiểu khoản vào ngày sự kiện, theo phân công hệ thống biết tại cutoff(D)
     select 'finova_app_events', e.batch_id, 'EVENT_NOT_ASSIGNED', e.event_id, false

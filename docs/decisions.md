@@ -37,6 +37,8 @@ Chọn **Phương án A**. Lý do:
 
 Hệ quả lên số liệu trước ngày cấp lại: không đổi. Người cũ giữ `broker_key = BRK017:2025-05-14`, tại `29/04` có 13 tiểu khoản, `CAP-MG-BOOKNAV = 22.129.625.000`, 16 tương tác; từ `04/05` tới `08/05` có 0 tiểu khoản, 16 tương tác. Từ `11/05` mã thuộc `BRK017:2026-05-11` với 0 tiểu khoản, 0 tương tác.
 
+Chỉ tiêu nhập tay (`manual_kpi`) cũng chỉ mang mã. Gold chỉ áp chỉ tiêu khi `approved_date` nằm trong khoảng làm việc của người mang mã tại `D`; ngoài khoảng thì `kpi_target_calls` NULL và `dq_mg_daily` gắn cờ `KPI_NOT_FOR_HOLDER` để nghiệp vụ duyệt lại. So `approved_date` chứ không so `ingested_ts`, vì file chỉ tiêu là bản chụp đầy đủ: bản sau có thể chép nguyên dòng duyệt cho người cũ. Khoảng làm việc của tương tác và chỉ tiêu dùng chung macro `gold_in_tenure`. Gói đề không có dòng chỉ tiêu `BRK017` nên số liệu không đổi; ca bị chặn thử bằng `ut_met_kpi_not_for_new_holder` và `ut_dq_kpi_not_for_holder_on_reuse_batch`. Đánh đổi: chỉ tiêu duyệt trước cho người sắp nhận mã (duyệt trước `JOINDATE`) cũng bị chặn và chờ nghiệp vụ xác nhận, không tự gán.
+
 Đánh đổi chấp nhận: raw vault không tự phân biệt hai người của cùng mã; nếu Gold quên lọc theo khoảng làm việc thì số liệu của người mới bị lẫn người cũ (16 tương tác ở ví dụ trên). Người cũ biến khỏi bản chụp từ `11/05` thể hiện bằng phiên bản satellite mới, không phải bằng việc khóa hub vắng mặt.
 
 ---

@@ -104,7 +104,7 @@ select broker_id, fr_date, to_date from asof.esat_reaflnk__flex where afacctno =
 
 Runner chạy cho database trống hoặc tiếp tục từ lần SUCCESS cuối trong `ctrl.batch_run`.
 
-Kết quả mong đợi trên gói đề (kiểm lại 06/11/2026 trên bản clone sạch, database mới): loader 63 lô `LOADED` (5.959 dòng) và 41 lô `SKIPPED_DUP`; `dbt build` staging PASS 75, WARN 1 (DQ-MOCOI, G7 → CN9), ERROR 0; raw vault 19 bảng, WARN 1 (GT-HUB-NOMASTER, CN9); runner 19 lần chạy SUCCESS; 11 unit test PASS; 8 view as-of; Business Vault 4 bảng × 19 ngày, mỗi lần `cap_mg_bv` PASS 13; Gold 5 bảng × 19 ngày, mỗi lần `cap_mg_gold` PASS 20; `RUN_PT_FULL=1 pytest -q tests` 61 passed; `cap_mg_all` từ schema trống PASS 291, WARN 2; `runner.evidence` lệch 0 giữa ba lần chạy; `runner.probes` 11 dòng đáp án ở `evidence/probes.csv`.
+Kết quả mong đợi trên gói đề (kiểm lại 10/11/2026, database mới): loader 63 lô `LOADED` (5.959 dòng) và 41 lô `SKIPPED_DUP`; `dbt build` staging PASS 75, WARN 1 (DQ-MOCOI, G7 → CN9), ERROR 0; raw vault 19 bảng, WARN 1 (GT-HUB-NOMASTER, CN9); runner 19 lần chạy SUCCESS; `dbt test --select test_type:unit` PASS 13 (11 unit test: 9 raw vault, 2 Gold; 2 hook); 8 view as-of; Business Vault 4 bảng × 19 ngày, mỗi lần `cap_mg_bv` PASS 13; Gold 5 bảng × 19 ngày, mỗi lần `cap_mg_gold` PASS 21; `RUN_PT_FULL=1 pytest -q tests` 61 passed; `cap_mg_all` từ schema trống PASS 292, WARN 2; `runner.evidence` lệch 0 giữa ba lần chạy; `runner.probes` 11 dòng đáp án ở `evidence/probes.csv`.
 
 ## Tra lỗi
 

@@ -17,6 +17,7 @@ PARENT_MISSING,DQ-MOCOI,CANHBAO,test_stg_regrp_parent_missing,Đơn vị trỏ t
 EVENT_NOT_ASSIGNED,DQ-QUYEN,CANHBAO,met_broker_daily,Tương tác với tiểu khoản không giao cho môi giới vào ngày đó theo phân công as-of D: không tính vào độ phủ (không phải dòng __rejected)
 ASSIGNMENT_OVERLAP,DQ-CHONGLAN,QUYETDINH,TC-CAP-MG-ONEBROKER,Tiểu khoản có hai môi giới cùng hiệu lực trong bản chụp: chọn theo DEC-CAP-MG-OVERLAP (không phải dòng __rejected)
 KEY_REUSED,DQ-KHOA-TAISUDUNG,QUYETDINH,test_stg_broker_hk_consistent,Mã môi giới cấp lại cho người khác (JOINDATE đổi): khóa theo DEC-CAP-MG-BROKERKEY (không phải dòng __rejected)
+KPI_NOT_FOR_HOLDER,DQ-KHOA-TAISUDUNG,QUYETDINH,ut_met_kpi_not_for_new_holder,Chỉ tiêu duyệt ngoài khoảng làm việc của người đang mang mã (vd duyệt cho người cũ của mã cấp lại): không áp; nghiệp vụ duyệt lại (không phải dòng __rejected)
 DUP_CONTENT,,,TC-CAP-LDZ-03,Lô trùng nội dung lô LOADED liền trước: loader bỏ qua (mục 2.3)
 FILE_MISSING,DQ-FILE-HONG,TUCHOI_LO,TC-CAP-LDZ-02,Không thấy file của lô
 SHA256_MISMATCH,DQ-FILE-HONG,TUCHOI_LO,TC-CAP-LDZ-02,File lệch checksum manifest
